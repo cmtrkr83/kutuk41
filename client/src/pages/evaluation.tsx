@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/base/buttons/button";
@@ -119,6 +120,7 @@ function emptySubjectAnswers(specs: SubjectSpec[]): Record<string, AnswerChar[]>
 export default function Evaluation() {
   const { selectedExamId, exams } = useRegistry();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [openBooklet, setOpenBooklet] = useState<string | null>(null);
 
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [students, setStudents] = useState<StudentRow[]>([]);
@@ -827,7 +829,7 @@ export default function Evaluation() {
               Her kitapçık türü için ders bazında doğru cevapları girin (toplam {numQuestions} soru).
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-6">
+          <CardContent className="space-y-4">
             {kitapcikTurleri.map((booklet) => {
               const bookletAnswers = answerKeys[booklet] ?? {};
               const completeCount = effectiveSubjects.filter(
@@ -835,38 +837,55 @@ export default function Evaluation() {
               ).length;
               return (
                 <div key={booklet} className="space-y-3 rounded-lg border border-separator-border p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <h3 className="text-sm font-semibold flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    onClick={() => setOpenBooklet(openBooklet === booklet ? null : booklet)}
+                    className="flex flex-wrap items-center justify-between gap-2 w-full text-left"
+                  >
+                    <span className="text-sm font-semibold flex items-center gap-2">
                       <BookOpen className="w-4 h-4 text-text-tertiary" />
-                      Kitapçık Türü: <Chip variant="subtle" color="blue">{booklet}</Chip>
-                    </h3>
+                      {openBooklet === booklet ? "▼" : "▶"} Kitapçık Türü: <Chip variant="subtle" color="blue">{booklet}</Chip>
+                    </span>
                     <span className="text-xs text-text-tertiary">
                       {completeCount}/{effectiveSubjects.length} ders tamam
                     </span>
-                  </div>
-                  {effectiveSubjects.map((spec) => {
-                    const value = (bookletAnswers[spec.subject] ?? []).join("");
-                    const allowed = answerOptions.slice(0, spec.optionCount);
-                    return (
-                      <div key={spec.subject} className="space-y-1">
-                        <Label htmlFor={`eval-key-${booklet}-${spec.subject}`}>
-                          {spec.subject} · {value.length}/{spec.questionCount} soru · {allowed.join("/")}
-                        </Label>
-                        <Input
-                          id={`eval-key-${booklet}-${spec.subject}`}
-                          value={value}
-                          placeholder={`${spec.questionCount} cevap (örn. ${allowed.join("")}...)`}
-                          onChange={(event) =>
-                            updateAnswerKey(
-                              booklet,
-                              spec.subject,
-                              normalizeAnswerLetters(event.target.value, spec.questionCount, spec.optionCount),
-                            )
-                          }
-                        />
-                      </div>
-                    );
-                  })}
+                  </Button>
+                  <AnimatePresence>
+                    {openBooklet === booklet && (
+                      <motion.div
+                        key="evaluation-answers"
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                        className="overflow-hidden space-y-2 pt-1"
+                      >
+                        {effectiveSubjects.map((spec) => {
+                          const value = (bookletAnswers[spec.subject] ?? []).join("");
+                          const allowed = answerOptions.slice(0, spec.optionCount);
+                          return (
+                            <div key={spec.subject} className="space-y-1">
+                              <Label htmlFor={`eval-key-${booklet}-${spec.subject}`}>
+                                {spec.subject} · {value.length}/{spec.questionCount} soru · {allowed.join("/")}
+                              </Label>
+                              <Input
+                                id={`eval-key-${booklet}-${spec.subject}`}
+                                value={value}
+                                placeholder={`${spec.questionCount} cevap (örn. ${allowed.join("")}...)`}
+                                onChange={(event) =>
+                                  updateAnswerKey(
+                                    booklet,
+                                    spec.subject,
+                                    normalizeAnswerLetters(event.target.value, spec.questionCount, spec.optionCount),
+                                  )
+                                }
+                              />
+                            </div>
+                          );
+                        })}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               );
             })}

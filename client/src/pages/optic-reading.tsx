@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/base/buttons/button";
@@ -151,6 +152,7 @@ export default function OpticReading() {
   const [answerKeyDraft, setAnswerKeyDraft] = useState<Record<string, Record<string, string>>>({});
   const [booklets, setBooklets] = useState<string[]>([DEFAULT_BOOKLET]);
   const [bookletToAdd, setBookletToAdd] = useState("");
+  const [openBooklet, setOpenBooklet] = useState<string | null>(null);
   const [scoreRules, setScoreRules] = useState({ correctPoints: "1", incorrectPoints: "0", blankPoints: "0" });
   const [isLoadingAnswerKey, setIsLoadingAnswerKey] = useState(false);
   const [isSavingAnswerKey, setIsSavingAnswerKey] = useState(false);
@@ -817,50 +819,71 @@ export default function OpticReading() {
                 {booklets.map((booklet) => (
                   <div key={booklet} className="space-y-2 rounded-lg border border-separator-border p-2.5">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-caption-1-semibold text-text-primary">
-                        Kitapçık {booklet}
-                      </span>
-                      {booklets.length > 1 && (
-                        <Button
-                          variant="secondary"
-                          size="small"
-                          iconOnly
-                          leadingIcon={XCircle}
-                          aria-label={`${booklet} kitapçığını kaldır`}
-                          className="text-text-error-primary"
-                          onClick={() => removeBooklet(booklet)}
-                          disabled={isLoadingAnswerKey || isSavingAnswerKey}
-                        />
-                      )}
-                    </div>
-                    {design.grids.map((grid) => {
-                      const allowed = optionLetters(grid.optionCount);
-                      const value = answerKeyDraft[booklet]?.[grid.subject] ?? "";
-                      return (
-                        <div key={grid.id} className="space-y-1">
-                          <Label htmlFor={`answer-key-${booklet}-${grid.id}`}>
-                            {grid.subject} · {value.length}/{grid.questionCount} soru · {allowed.join("/")}
-                          </Label>
-                          <Input
-                            id={`answer-key-${booklet}-${grid.id}`}
-                            value={value}
-                            placeholder={`${grid.questionCount} cevap (örn. ${allowed.join("")}...)`}
-                            onChange={(event) => {
-                              const next = normalizeAnswerLetters(
-                                event.target.value,
-                                grid.questionCount,
-                                grid.optionCount,
-                              );
-                              setAnswerKeyDraft((previous) => ({
-                                ...previous,
-                                [booklet]: { ...previous[booklet], [grid.subject]: next },
-                              }));
-                            }}
-                            disabled={!selectedExamId || isLoadingAnswerKey || isSavingAnswerKey}
+                      <Button
+                        variant="ghost"
+                        size="small"
+                        onClick={() => setOpenBooklet(openBooklet === booklet ? null : booklet)}
+                        className="flex items-center justify-between w-full text-left"
+                        aria-label={`${booklet} kitapçık cevap anahtarını ${openBooklet === booklet ? "gizle" : "göster"}`}
+                      >
+                        <span className="text-caption-1-semibold text-text-primary">
+                          {openBooklet === booklet ? "▼" : "▶"} Kitapçık {booklet}
+                        </span>
+                        {booklets.length > 1 && (
+                          <Button
+                            variant="secondary"
+                            size="small"
+                            iconOnly
+                            leadingIcon={XCircle}
+                            aria-label={`${booklet} kitapçığını kaldır`}
+                            className="text-text-error-primary"
+                            onClick={() => removeBooklet(booklet)}
+                            disabled={isLoadingAnswerKey || isSavingAnswerKey}
                           />
-                        </div>
-                      );
-                    })}
+                        )}
+                      </Button>
+                    </div>
+                    <AnimatePresence>
+                      {openBooklet === booklet && (
+                        <motion.div
+                          key="answers"
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                          className="mt-2 rounded-lg border border-separator-border p-2 bg-black/5"
+                        >
+                          {design.grids.map((grid) => {
+                            const allowed = optionLetters(grid.optionCount);
+                            const value = answerKeyDraft[booklet]?.[grid.subject] ?? "";
+                            return (
+                              <div key={grid.id} className="space-y-1">
+                                <Label htmlFor={`answer-key-${booklet}-${grid.id}`}>
+                                  {grid.subject} · {value.length}/{grid.questionCount} soru · {allowed.join("/")}
+                                </Label>
+                                <Input
+                                  id={`answer-key-${booklet}-${grid.id}`}
+                                  value={value}
+                                  placeholder={`${grid.questionCount} cevap (örn. ${allowed.join("")}...)`}
+                                  onChange={(event) => {
+                                    const next = normalizeAnswerLetters(
+                                      event.target.value,
+                                      grid.questionCount,
+                                      grid.optionCount,
+                                    );
+                                    setAnswerKeyDraft((previous) => ({
+                                      ...previous,
+                                      [booklet]: { ...previous[booklet], [grid.subject]: next },
+                                    }));
+                                  }}
+                                  disabled={!selectedExamId || isLoadingAnswerKey || isSavingAnswerKey}
+                                />
+                              </div>
+                            );
+                          })}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
                 ))}
                 {BOOKLET_OPTIONS.some((option) => !booklets.includes(option)) && (
