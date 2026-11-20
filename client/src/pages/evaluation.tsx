@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import type { Key } from "react-aria-components";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Accordion, AccordionItem } from "@/components/base/accordion/accordion";
 import { Button } from "@/components/base/buttons/button";
 import { InputBase as Input } from "@/components/base/input/input";
 import { Label } from "@/components/base/input/label";
@@ -120,7 +121,7 @@ function emptySubjectAnswers(specs: SubjectSpec[]): Record<string, AnswerChar[]>
 export default function Evaluation() {
   const { selectedExamId, exams } = useRegistry();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [openBooklet, setOpenBooklet] = useState<string | null>(null);
+  const [expandedBooklets, setExpandedBooklets] = useState<Set<Key>>(new Set());
 
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [students, setStudents] = useState<StudentRow[]>([]);
@@ -149,6 +150,10 @@ export default function Evaluation() {
   }, [subjects, numQuestions, students]);
 
   const showSubjectBreakdown = effectiveSubjects.length > 1;
+
+  useEffect(() => {
+    setExpandedBooklets(kitapcikTurleri.length > 0 ? new Set([kitapcikTurleri[0]]) : new Set());
+  }, [kitapcikTurleri]);
 
   useEffect(() => {
     const raw = sessionStorage.getItem("directEvaluationPayload");
@@ -830,65 +835,58 @@ export default function Evaluation() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {kitapcikTurleri.map((booklet) => {
-              const bookletAnswers = answerKeys[booklet] ?? {};
-              const completeCount = effectiveSubjects.filter(
-                (spec) => (bookletAnswers[spec.subject]?.length ?? 0) === spec.questionCount,
-              ).length;
-              return (
-                <div key={booklet} className="space-y-3 rounded-lg border border-separator-border p-3">
-                  <Button
-                    variant="ghost"
-                    onClick={() => setOpenBooklet(openBooklet === booklet ? null : booklet)}
-                    className="flex flex-wrap items-center justify-between gap-2 w-full text-left"
+            <Accordion
+              expandedKeys={expandedBooklets}
+              onExpandedChange={(keys) => setExpandedBooklets(new Set(keys))}
+              className="border-b border-separator-border"
+            >
+              {kitapcikTurleri.map((booklet) => {
+                const bookletAnswers = answerKeys[booklet] ?? {};
+                const completeCount = effectiveSubjects.filter(
+                  (spec) => (bookletAnswers[spec.subject]?.length ?? 0) === spec.questionCount,
+                ).length;
+                return (
+                  <AccordionItem
+                    key={booklet}
+                    id={booklet}
+                    headingLevel={4}
+                    icon={BookOpen}
+                    title={
+                      <>
+                        Kitapçık Türü: <Chip variant="subtle" color="blue">{booklet}</Chip>
+                      </>
+                    }
+                    description={`${completeCount}/${effectiveSubjects.length} ders tamam`}
                   >
-                    <span className="text-sm font-semibold flex items-center gap-2">
-                      <BookOpen className="w-4 h-4 text-text-tertiary" />
-                      {openBooklet === booklet ? "▼" : "▶"} Kitapçık Türü: <Chip variant="subtle" color="blue">{booklet}</Chip>
-                    </span>
-                    <span className="text-xs text-text-tertiary">
-                      {completeCount}/{effectiveSubjects.length} ders tamam
-                    </span>
-                  </Button>
-                  <AnimatePresence>
-                    {openBooklet === booklet && (
-                      <motion.div
-                        key="evaluation-answers"
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: "auto", opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                        className="overflow-hidden space-y-2 pt-1"
-                      >
-                        {effectiveSubjects.map((spec) => {
-                          const value = (bookletAnswers[spec.subject] ?? []).join("");
-                          const allowed = answerOptions.slice(0, spec.optionCount);
-                          return (
-                            <div key={spec.subject} className="space-y-1">
-                              <Label htmlFor={`eval-key-${booklet}-${spec.subject}`}>
-                                {spec.subject} · {value.length}/{spec.questionCount} soru · {allowed.join("/")}
-                              </Label>
-                              <Input
-                                id={`eval-key-${booklet}-${spec.subject}`}
-                                value={value}
-                                placeholder={`${spec.questionCount} cevap (örn. ${allowed.join("")}...)`}
-                                onChange={(event) =>
-                                  updateAnswerKey(
-                                    booklet,
-                                    spec.subject,
-                                    normalizeAnswerLetters(event.target.value, spec.questionCount, spec.optionCount),
-                                  )
-                                }
-                              />
-                            </div>
-                          );
-                        })}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              );
-            })}
+                    <div className="space-y-2">
+                      {effectiveSubjects.map((spec) => {
+                        const value = (bookletAnswers[spec.subject] ?? []).join("");
+                        const allowed = answerOptions.slice(0, spec.optionCount);
+                        return (
+                          <div key={spec.subject} className="space-y-1">
+                            <Label htmlFor={`eval-key-${booklet}-${spec.subject}`}>
+                              {spec.subject} · {value.length}/{spec.questionCount} soru · {allowed.join("/")}
+                            </Label>
+                            <Input
+                              id={`eval-key-${booklet}-${spec.subject}`}
+                              value={value}
+                              placeholder={`${spec.questionCount} cevap (örn. ${allowed.join("")}...)`}
+                              onChange={(event) =>
+                                updateAnswerKey(
+                                  booklet,
+                                  spec.subject,
+                                  normalizeAnswerLetters(event.target.value, spec.questionCount, spec.optionCount),
+                                )
+                              }
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </AccordionItem>
+                );
+              })}
+            </Accordion>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
               <div>

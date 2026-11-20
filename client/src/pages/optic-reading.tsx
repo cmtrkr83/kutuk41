@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import type { Key } from "react-aria-components";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Accordion, AccordionItem } from "@/components/base/accordion/accordion";
 import { Button } from "@/components/base/buttons/button";
 import { InputBase as Input } from "@/components/base/input/input";
 import { Label } from "@/components/base/input/label";
@@ -152,7 +153,7 @@ export default function OpticReading() {
   const [answerKeyDraft, setAnswerKeyDraft] = useState<Record<string, Record<string, string>>>({});
   const [booklets, setBooklets] = useState<string[]>([DEFAULT_BOOKLET]);
   const [bookletToAdd, setBookletToAdd] = useState("");
-  const [openBooklet, setOpenBooklet] = useState<string | null>(null);
+  const [expandedBooklets, setExpandedBooklets] = useState<Set<Key>>(() => new Set([DEFAULT_BOOKLET]));
   const [scoreRules, setScoreRules] = useState({ correctPoints: "1", incorrectPoints: "0", blankPoints: "0" });
   const [isLoadingAnswerKey, setIsLoadingAnswerKey] = useState(false);
   const [isSavingAnswerKey, setIsSavingAnswerKey] = useState(false);
@@ -183,6 +184,7 @@ export default function OpticReading() {
     setIsLoadingAnswerKey(true);
     setBooklets([DEFAULT_BOOKLET]);
     setBookletToAdd("");
+    setExpandedBooklets(new Set([DEFAULT_BOOKLET]));
     setAnswerKeyDraft(emptyBookletDraft([DEFAULT_BOOKLET], design.grids));
     setScoreRules({ correctPoints: "1", incorrectPoints: "0", blankPoints: "0" });
     const query = new URLSearchParams({
@@ -201,6 +203,7 @@ export default function OpticReading() {
         const storedBooklets = Object.keys(normalized);
         const nextBooklets = storedBooklets.length > 0 ? storedBooklets : [DEFAULT_BOOKLET];
         setBooklets(nextBooklets);
+        setExpandedBooklets(new Set([nextBooklets[0]]));
         setAnswerKeyDraft(Object.fromEntries(
           nextBooklets.map((booklet) => [
             booklet,
@@ -378,10 +381,16 @@ export default function OpticReading() {
       [bookletToAdd]: Object.fromEntries(design.grids.map((grid) => [grid.subject, ""])),
     }));
     setBookletToAdd("");
+    setExpandedBooklets((previous) => new Set([...previous, bookletToAdd]));
   };
 
   const removeBooklet = (booklet: string) => {
     setBooklets((previous) => previous.filter((item) => item !== booklet));
+    setExpandedBooklets((previous) => {
+      const next = new Set(previous);
+      next.delete(booklet);
+      return next;
+    });
     setAnswerKeyDraft((previous) => {
       const next = { ...previous };
       delete next[booklet];
@@ -805,7 +814,7 @@ export default function OpticReading() {
             </div>
 
             {design && (
-              <div className="space-y-3 rounded-xl border border-separator-border p-3">
+              <div className="space-y-3">
                 <div>
                   <p className="text-sm font-medium text-text-primary">Cevap anahtarı ve puanlama</p>
                   <p className="text-xs text-text-tertiary">
@@ -816,43 +825,38 @@ export default function OpticReading() {
                 {!selectedExamId && (
                   <p role="alert" className="text-xs text-text-error-primary">Önce sınav seçin.</p>
                 )}
-                {booklets.map((booklet) => (
-                  <div key={booklet} className="space-y-2 rounded-lg border border-separator-border p-2.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <Button
-                        variant="ghost"
-                        size="small"
-                        onClick={() => setOpenBooklet(openBooklet === booklet ? null : booklet)}
-                        className="flex items-center justify-between w-full text-left"
-                        aria-label={`${booklet} kitapçık cevap anahtarını ${openBooklet === booklet ? "gizle" : "göster"}`}
+                <Accordion
+                  expandedKeys={expandedBooklets}
+                  onExpandedChange={(keys) => setExpandedBooklets(new Set(keys))}
+                  className="border-b border-separator-border"
+                >
+                  {booklets.map((booklet) => {
+                    const filled = design.grids.filter(
+                      (grid) => (answerKeyDraft[booklet]?.[grid.subject] ?? "").length === grid.questionCount,
+                    ).length;
+                    return (
+                      <AccordionItem
+                        key={booklet}
+                        id={booklet}
+                        headingLevel={4}
+                        title={`Kitapçık ${booklet}`}
+                        description={`${filled}/${design.grids.length} ders tamam`}
+                        action={
+                          booklets.length > 1 ? (
+                            <Button
+                              variant="ghost"
+                              size="small"
+                              iconOnly
+                              leadingIcon={XCircle}
+                              aria-label={`${booklet} kitapçığını kaldır`}
+                              className="-mr-1.5 text-text-error-primary"
+                              onClick={() => removeBooklet(booklet)}
+                              disabled={isLoadingAnswerKey || isSavingAnswerKey}
+                            />
+                          ) : null
+                        }
                       >
-                        <span className="text-caption-1-semibold text-text-primary">
-                          {openBooklet === booklet ? "▼" : "▶"} Kitapçık {booklet}
-                        </span>
-                        {booklets.length > 1 && (
-                          <Button
-                            variant="secondary"
-                            size="small"
-                            iconOnly
-                            leadingIcon={XCircle}
-                            aria-label={`${booklet} kitapçığını kaldır`}
-                            className="text-text-error-primary"
-                            onClick={() => removeBooklet(booklet)}
-                            disabled={isLoadingAnswerKey || isSavingAnswerKey}
-                          />
-                        )}
-                      </Button>
-                    </div>
-                    <AnimatePresence>
-                      {openBooklet === booklet && (
-                        <motion.div
-                          key="answers"
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: "auto", opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                          className="mt-2 rounded-lg border border-separator-border p-2 bg-black/5"
-                        >
+                        <div className="space-y-2">
                           {design.grids.map((grid) => {
                             const allowed = optionLetters(grid.optionCount);
                             const value = answerKeyDraft[booklet]?.[grid.subject] ?? "";
@@ -881,11 +885,11 @@ export default function OpticReading() {
                               </div>
                             );
                           })}
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                ))}
+                        </div>
+                      </AccordionItem>
+                    );
+                  })}
+                </Accordion>
                 {BOOKLET_OPTIONS.some((option) => !booklets.includes(option)) && (
                   <div className="flex items-end gap-2">
                     <Select
