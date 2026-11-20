@@ -192,23 +192,24 @@ details summary::-webkit-details-marker {
   display: none;
 }
 
-/* Hide default number-input spinners */
-input::-webkit-outer-spin-button,
-input::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-input[type="number"] {
-  -moz-appearance: textfield;
-}
-
-.optic-form-number-input::-webkit-outer-spin-button,
-.optic-form-number-input::-webkit-inner-spin-button {
+/* Number-input spinners: keep spinners visible on number inputs */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
   -webkit-appearance: inner-spin-button;
   opacity: 1;
 }
-.optic-form-number-input[type="number"] {
-  -moz-appearance: number-input;
+input[type="number"] {
+  -moz-appearance: auto;
+}
+
+/* Optional opt-out to hide number-input spinners when explicitly requested */
+input[type="number"].no-spin::-webkit-outer-spin-button,
+input[type="number"].no-spin::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"].no-spin {
+  -moz-appearance: textfield;
 }
 
 /* Hide default search clear button */

@@ -7,7 +7,8 @@ import { Label } from "@/components/base/input/label";
 import { Chip } from "@/components/base/badges/chip";
 import { Select, SelectItem } from "@/components/base/select/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { AlertCircle, CheckCircle2, Download, FileScan, Loader2, Save, Upload, XCircle } from "lucide-react";
+import { AlertCircle, CheckCircle2, ClipboardCheck, Download, FileScan, Loader2, Save, Upload, XCircle } from "lucide-react";
+import { useLocation } from "wouter";
 
 import { toast } from "@/components/base/toast/toast";
 import { useRegistry } from "@/context/RegistryContext";
@@ -20,6 +21,15 @@ import {
   type OpticFormDesign,
   type OpticManifest,
 } from "@/lib/optic-form";
+import {
+  BOOKLET_OPTIONS,
+  DEFAULT_BOOKLET,
+  emptyBookletDraft,
+  normalizeAnswerLetters,
+  normalizeBookletAnswers,
+  pickBookletAnswers,
+  type BookletAnswers,
+} from "@/lib/optic-evaluation";
 
 interface FieldRead {
   id: string;
@@ -71,7 +81,7 @@ interface SavedScan {
 }
 
 interface AnswerKeyRecord {
-  answers: Record<string, string[]>;
+  answers: unknown;
   correctPoints: number;
   incorrectPoints: number;
   blankPoints: number;
@@ -118,6 +128,7 @@ function csvCell(value: string): string {
 
 export default function OpticReading() {
   const { selectedExamId, students } = useRegistry();
+  const [, setLocation] = useLocation();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [designs, setDesigns] = useState<OpticFormDesign[]>([]);
@@ -137,7 +148,9 @@ export default function OpticReading() {
   const [selectedOverlay, setSelectedOverlay] = useState<string | null>(null);
   const [overlayLoading, setOverlayLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [answerKeyDraft, setAnswerKeyDraft] = useState<Record<string, string>>({});
+  const [answerKeyDraft, setAnswerKeyDraft] = useState<Record<string, Record<string, string>>>({});
+  const [booklets, setBooklets] = useState<string[]>([DEFAULT_BOOKLET]);
+  const [bookletToAdd, setBookletToAdd] = useState("");
   const [scoreRules, setScoreRules] = useState({ correctPoints: "1", incorrectPoints: "0", blankPoints: "0" });
   const [isLoadingAnswerKey, setIsLoadingAnswerKey] = useState(false);
   const [isSavingAnswerKey, setIsSavingAnswerKey] = useState(false);
@@ -166,7 +179,9 @@ export default function OpticReading() {
     }
 
     setIsLoadingAnswerKey(true);
-    setAnswerKeyDraft(Object.fromEntries(design.grids.map((grid) => [grid.subject, ""])));
+    setBooklets([DEFAULT_BOOKLET]);
+    setBookletToAdd("");
+    setAnswerKeyDraft(emptyBookletDraft([DEFAULT_BOOKLET], design.grids));
     setScoreRules({ correctPoints: "1", incorrectPoints: "0", blankPoints: "0" });
     const query = new URLSearchParams({
       examId: selectedExamId,
@@ -180,10 +195,19 @@ export default function OpticReading() {
       })
       .then(({ answerKey }) => {
         if (cancelled || !answerKey) return;
+        const normalized = normalizeBookletAnswers(answerKey.answers);
+        const storedBooklets = Object.keys(normalized);
+        const nextBooklets = storedBooklets.length > 0 ? storedBooklets : [DEFAULT_BOOKLET];
+        setBooklets(nextBooklets);
         setAnswerKeyDraft(Object.fromEntries(
-          design.grids.map((grid) => [
-            grid.subject,
-            (answerKey.answers[grid.subject] ?? []).join(""),
+          nextBooklets.map((booklet) => [
+            booklet,
+            Object.fromEntries(
+              design.grids.map((grid) => [
+                grid.subject,
+                (normalized[booklet]?.[grid.subject] ?? []).join(""),
+              ]),
+            ),
           ]),
         ));
         setScoreRules({
@@ -239,19 +263,25 @@ export default function OpticReading() {
     };
   }, [selectedExamId]);
 
-  const answerKeyData = useMemo(() => {
-    if (!design || design.grids.length === 0) return null;
-    const answers: Record<string, string[]> = {};
-    for (const grid of design.grids) {
-      const value = (answerKeyDraft[grid.subject] ?? "").replace(/\s/g, "").toUpperCase();
-      const allowed = new Set(optionLetters(grid.optionCount));
-      if (value.length !== grid.questionCount || Array.from(value).some((letter) => !allowed.has(letter))) {
-        return null;
+  const answerKeyData = useMemo<BookletAnswers | null>(() => {
+    if (!design || design.grids.length === 0 || booklets.length === 0) return null;
+    const result: BookletAnswers = {};
+    for (const booklet of booklets) {
+      const subjectAnswers: Record<string, string[]> = {};
+      let complete = true;
+      for (const grid of design.grids) {
+        const value = (answerKeyDraft[booklet]?.[grid.subject] ?? "").replace(/\s/g, "").toUpperCase();
+        const allowed = new Set(optionLetters(grid.optionCount));
+        if (value.length !== grid.questionCount || Array.from(value).some((letter) => !allowed.has(letter))) {
+          complete = false;
+          break;
+        }
+        subjectAnswers[grid.subject] = Array.from(value);
       }
-      answers[grid.subject] = Array.from(value);
+      if (complete) result[booklet] = subjectAnswers;
     }
-    return answers;
-  }, [answerKeyDraft, design]);
+    return Object.keys(result).length > 0 ? result : null;
+  }, [answerKeyDraft, booklets, design]);
 
   const calculateScore = useCallback((result: ReadResult) => {
     if (!answerKeyData) return null;
@@ -262,12 +292,16 @@ export default function OpticReading() {
     };
     if (Object.values(rules).some((value) => !Number.isFinite(value))) return null;
 
+    const bookletField = result.fields.find((field) => classifyField(field) === "booklet");
+    const bookletAnswers = pickBookletAnswers(answerKeyData, bookletField?.value ?? "");
+    if (!bookletAnswers) return null;
+
     let correct = 0;
     let incorrect = 0;
     let blank = 0;
     let score = 0;
     for (const grid of result.grids) {
-      const key = answerKeyData[grid.subject];
+      const key = bookletAnswers[grid.subject];
       if (!key) return null;
       for (const answer of grid.answers) {
         const expected = key[answer.no - 1];
@@ -294,7 +328,14 @@ export default function OpticReading() {
     }
     if (!answerKeyData) {
       toast.error("Cevap anahtarı eksik", {
-        description: "Her ders için bütün soruların doğru seçeneğini girin. Örnek: ABCDE...",
+        description: "Her kitapçık ve ders için bütün soruların doğru seçeneğini girin. Örnek: ABCDE...",
+      });
+      return;
+    }
+    const missingBooklets = booklets.filter((booklet) => !answerKeyData[booklet]);
+    if (missingBooklets.length > 0) {
+      toast.error("Cevap anahtarı eksik", {
+        description: `${missingBooklets.join(", ")} kitapçığı için tüm derslerin cevaplarını girin veya kitapçığı kaldırın.`,
       });
       return;
     }
@@ -325,6 +366,25 @@ export default function OpticReading() {
     } finally {
       setIsSavingAnswerKey(false);
     }
+  };
+
+  const addBooklet = () => {
+    if (!bookletToAdd || booklets.includes(bookletToAdd) || !design) return;
+    setBooklets((previous) => [...previous, bookletToAdd]);
+    setAnswerKeyDraft((previous) => ({
+      ...previous,
+      [bookletToAdd]: Object.fromEntries(design.grids.map((grid) => [grid.subject, ""])),
+    }));
+    setBookletToAdd("");
+  };
+
+  const removeBooklet = (booklet: string) => {
+    setBooklets((previous) => previous.filter((item) => item !== booklet));
+    setAnswerKeyDraft((previous) => {
+      const next = { ...previous };
+      delete next[booklet];
+      return next;
+    });
   };
 
   useEffect(() => {
@@ -591,22 +651,47 @@ export default function OpticReading() {
     const ok = results.filter((r) => r.success);
     if (ok.length === 0) return;
     const fieldLabels = ok[0].fields.map((f) => f.label);
-    const subjects = ok[0].grids.map((g) => g.subject);
 
-    const header = ["Dosya", "QR", "Eşleşen Öğrenci", ...fieldLabels, ...subjects.map((s) => `${s} Cevap`), "Cevaplanan", "Doğru", "Yanlış", "Boş", "Puan"];
+    const maxQuestions = ok.reduce((max, r) => {
+      const count = r.grids.reduce((sum, g) => sum + g.answers.length, 0);
+      return Math.max(max, count);
+    }, 0);
+    const questionCols = Array.from({ length: maxQuestions }, (_, i) => `Soru ${i + 1}`);
+
+    const header = [
+      "Dosya",
+      "QR",
+      "Kitapçık Türü",
+      "Eşleşen Öğrenci",
+      ...fieldLabels,
+      ...questionCols,
+      "Toplam Soru",
+      "Cevaplanan",
+      "Doğru",
+      "Yanlış",
+      "Boş",
+      "Puan",
+    ];
+
     const rows = ok.map((r) => {
+      const bookletField = r.fields.find((f) => classifyField(f) === "booklet");
       const score = calculateScore(r);
       const match = students.find((student) => student.studentNo === studentIdentifier(r));
+      const allAnswers: string[] = [];
+      r.grids.forEach((g) => {
+        g.answers.forEach((a) => allAnswers.push(a.answer || ""));
+      });
+      const paddedAnswers = questionCols.map((_, i) => allAnswers[i] || "");
+
       const cells = [
         r.file_name,
         r.qr,
+        bookletField?.value ?? "",
         match?.fullName ?? "",
         ...r.fields.map((f) => fieldValue(f)),
-        ...subjects.map((s) => {
-          const g = r.grids.find((gr) => gr.subject === s);
-          return g ? g.answers.map((a) => a.answer).join(",") : "";
-        }),
-        String(r.grids.reduce((sum, g) => sum + g.answers.filter((a) => a.answer).length, 0)),
+        ...paddedAnswers,
+        String(allAnswers.length),
+        String(allAnswers.filter(Boolean).length),
         score ? String(score.correct) : "",
         score ? String(score.incorrect) : "",
         score ? String(score.blank) : "",
@@ -615,6 +700,49 @@ export default function OpticReading() {
       return cells.map(csvCell).join(";");
     });
     downloadCsv("\uFEFF" + [header.map(csvCell).join(";"), ...rows].join("\n"), `optic_okuma_${Date.now()}`);
+  };
+
+  const handleSendToEvaluation = () => {
+    const ok = results.filter((r) => r.success);
+    if (ok.length === 0 && savedScans.length === 0) {
+      toast.error("Sonuç bulunamadı", { description: "Değerlendirmeye aktarılacak optik okuma sonucu yok." });
+      return;
+    }
+    if (ok.length > 0) {
+      const students = ok.map((r) => {
+        const bookletField = r.fields.find((f) => classifyField(f) === "booklet");
+        const dersCevaplari = Object.fromEntries(
+          r.grids.map((grid) => [grid.subject, grid.answers.map((answer) => answer.answer || "")]),
+        );
+        const allAnswers = r.grids.flatMap((grid) => grid.answers.map((answer) => answer.answer || ""));
+        return {
+          dosya: r.file_name,
+          qr: r.qr,
+          kitapcikTuru: bookletField?.value?.toUpperCase() || "",
+          toplamSoru: allAnswers.length,
+          cevaplanan: allAnswers.filter(Boolean).length,
+          cevaplar: allAnswers,
+          dersCevaplari,
+        };
+      });
+      const payload = {
+        students,
+        subjects: design?.grids.map((grid) => ({
+          subject: grid.subject,
+          questionCount: grid.questionCount,
+          optionCount: grid.optionCount,
+        })) ?? [],
+        answerKeys: answerKeyData
+          ? Object.entries(answerKeyData).map(([kitapcikTuru, answers]) => ({ kitapcikTuru, answers }))
+          : [],
+        correctPoints: Number(scoreRules.correctPoints),
+        incorrectPoints: Number(scoreRules.incorrectPoints),
+        blankPoints: Number(scoreRules.blankPoints),
+      };
+      sessionStorage.setItem("directEvaluationPayload", JSON.stringify(payload));
+    }
+    toast.success("Değerlendirme ekranına yönlendiriliyorsunuz");
+    setLocation("/evaluation");
   };
 
   const selectedResult = selected !== null ? results[selected] : null;
@@ -679,37 +807,89 @@ export default function OpticReading() {
                 <div>
                   <p className="text-sm font-medium text-text-primary">Cevap anahtarı ve puanlama</p>
                   <p className="text-xs text-text-tertiary">
-                    Seçili sınav ve optik form sürümü için saklanır. Her soru için doğru harfi sırayla girin.
+                    Seçili sınav ve optik form sürümü için saklanır. Tek kitapçıkta A yeterlidir; birden fazla
+                    kitapçık varsa her biri için ders bazında cevapları ayrı ayrı girin.
                   </p>
                 </div>
                 {!selectedExamId && (
                   <p role="alert" className="text-xs text-text-error-primary">Önce sınav seçin.</p>
                 )}
-                {design.grids.map((grid) => {
-                  const allowed = optionLetters(grid.optionCount);
-                  const value = answerKeyDraft[grid.subject] ?? "";
-                  return (
-                    <div key={grid.id} className="space-y-1">
-                      <Label htmlFor={`answer-key-${grid.id}`}>
-                        {grid.subject} · {value.length}/{grid.questionCount} soru · {allowed.join("/")}
-                      </Label>
-                      <Input
-                        id={`answer-key-${grid.id}`}
-                        value={value}
-                        placeholder={`${grid.questionCount} cevap (örn. ${allowed.join("")}...)`}
-                        onChange={(event) => {
-                          const valid = new Set(allowed);
-                          const next = Array.from(event.target.value.toUpperCase())
-                            .filter((letter) => valid.has(letter))
-                            .slice(0, grid.questionCount)
-                            .join("");
-                          setAnswerKeyDraft((previous) => ({ ...previous, [grid.subject]: next }));
-                        }}
-                        disabled={!selectedExamId || isLoadingAnswerKey || isSavingAnswerKey}
-                      />
+                {booklets.map((booklet) => (
+                  <div key={booklet} className="space-y-2 rounded-lg border border-separator-border p-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-caption-1-semibold text-text-primary">
+                        Kitapçık {booklet}
+                      </span>
+                      {booklets.length > 1 && (
+                        <Button
+                          variant="secondary"
+                          size="small"
+                          iconOnly
+                          leadingIcon={XCircle}
+                          aria-label={`${booklet} kitapçığını kaldır`}
+                          className="text-text-error-primary"
+                          onClick={() => removeBooklet(booklet)}
+                          disabled={isLoadingAnswerKey || isSavingAnswerKey}
+                        />
+                      )}
                     </div>
-                  );
-                })}
+                    {design.grids.map((grid) => {
+                      const allowed = optionLetters(grid.optionCount);
+                      const value = answerKeyDraft[booklet]?.[grid.subject] ?? "";
+                      return (
+                        <div key={grid.id} className="space-y-1">
+                          <Label htmlFor={`answer-key-${booklet}-${grid.id}`}>
+                            {grid.subject} · {value.length}/{grid.questionCount} soru · {allowed.join("/")}
+                          </Label>
+                          <Input
+                            id={`answer-key-${booklet}-${grid.id}`}
+                            value={value}
+                            placeholder={`${grid.questionCount} cevap (örn. ${allowed.join("")}...)`}
+                            onChange={(event) => {
+                              const next = normalizeAnswerLetters(
+                                event.target.value,
+                                grid.questionCount,
+                                grid.optionCount,
+                              );
+                              setAnswerKeyDraft((previous) => ({
+                                ...previous,
+                                [booklet]: { ...previous[booklet], [grid.subject]: next },
+                              }));
+                            }}
+                            disabled={!selectedExamId || isLoadingAnswerKey || isSavingAnswerKey}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+                {BOOKLET_OPTIONS.some((option) => !booklets.includes(option)) && (
+                  <div className="flex items-end gap-2">
+                    <Select
+                      label="Kitapçık ekle"
+                      selectedKey={bookletToAdd || null}
+                      onSelectionChange={(key) => setBookletToAdd(String(key))}
+                      size="sm"
+                      placeholder="Kitapçık seçin"
+                      className="flex-1"
+                      isDisabled={isLoadingAnswerKey || isSavingAnswerKey}
+                    >
+                      {BOOKLET_OPTIONS.filter((option) => !booklets.includes(option)).map((option) => (
+                        <SelectItem key={option} id={option}>
+                          {option} kitapçığı
+                        </SelectItem>
+                      ))}
+                    </Select>
+                    <Button
+                      variant="secondary"
+                      size="small"
+                      onClick={addBooklet}
+                      disabled={!bookletToAdd || isLoadingAnswerKey || isSavingAnswerKey}
+                    >
+                      Ekle
+                    </Button>
+                  </div>
+                )}
                 <div className="grid grid-cols-3 gap-2">
                   {([
                     ["correctPoints", "Doğru"],
@@ -733,7 +913,7 @@ export default function OpticReading() {
                   className="w-full"
                   variant="ghost"
                   onClick={saveAnswerKey}
-                  disabled={!selectedExamId || isLoadingAnswerKey || isSavingAnswerKey || !answerKeyData}
+                  disabled={!selectedExamId || isLoadingAnswerKey || isSavingAnswerKey}
                 >
                   {isSavingAnswerKey ? "Kaydediliyor..." : "Anahtarı Kaydet"}
                 </Button>
@@ -798,6 +978,9 @@ export default function OpticReading() {
                 <Button className="w-full" onClick={handleSave} disabled={isSaving || !results.some((r) => r.success)} variant="ghost">
                   {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                   Sonuçları Kaydet
+                </Button>
+                <Button className="w-full" onClick={handleSendToEvaluation} disabled={!results.some((r) => r.success)} variant="secondary" leadingIcon={ClipboardCheck}>
+                  Değerlendirmeye Aktar
                 </Button>
               </div>
             )}
@@ -1013,11 +1196,18 @@ export default function OpticReading() {
 
       {selectedExamId && (
         <Card>
-          <CardHeader>
-            <CardTitle>Seçili sınavın kayıtlı optik sonuçları</CardTitle>
-            <CardDescription>
-              Öğrenci eşleşmesi öğrenci ID/T.C. alanı veya QR içeriğiyle yapılır. Eşleşmeyen kayıtlar saklanır ve sonradan incelenebilir.
-            </CardDescription>
+          <CardHeader className="flex flex-row items-center justify-between gap-4">
+            <div>
+              <CardTitle>Seçili sınavın kayıtlı optik sonuçları</CardTitle>
+              <CardDescription>
+                Öğrenci eşleşmesi öğrenci ID/T.C. alanı veya QR içeriğiyle yapılır. Eşleşmeyen kayıtlar saklanır ve sonradan incelenebilir.
+              </CardDescription>
+            </div>
+            {savedScans.length > 0 && (
+              <Button variant="secondary" onClick={() => setLocation("/evaluation")} leadingIcon={ClipboardCheck}>
+                Bu Sınavı Değerlendir
+              </Button>
+            )}
           </CardHeader>
           <CardContent>
             {savedScansError ? (

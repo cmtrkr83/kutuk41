@@ -508,10 +508,26 @@ const fs = await import("fs/promises");
     } | undefined;
 
     if (!answerKey) return res.status(200).json({ answerKey: null });
+    const parsedAnswers = JSON.parse(answerKey.answersJson);
+    // Çoklu kitapçık normalizasyonu: Eğer eski tekli formattaysa { A: parsedAnswers } yap
+    const isMultiBooklet =
+      parsedAnswers &&
+      typeof parsedAnswers === "object" &&
+      !Array.isArray(parsedAnswers) &&
+      Object.values(parsedAnswers).length > 0 &&
+      typeof Object.values(parsedAnswers)[0] === "object" &&
+      !Array.isArray(Object.values(parsedAnswers)[0]);
+
+    const normalizedAnswers = isMultiBooklet
+      ? parsedAnswers
+      : { A: parsedAnswers };
+
     return res.status(200).json({
       answerKey: {
         ...answerKey,
-        answers: JSON.parse(answerKey.answersJson),
+        answers: normalizedAnswers,
+        // Geriye dönük uyumluluk için varsayılan tekli görünüm de A'yı göstersin
+        singleAnswers: isMultiBooklet ? (parsedAnswers["A"] || Object.values(parsedAnswers)[0] || {}) : parsedAnswers,
       },
     });
   });
@@ -541,16 +557,6 @@ const fs = await import("fs/promises");
       return res.status(400).json({ message: "Cevap anahtarı geçersiz" });
     }
 
-    const invalidSubject = Object.entries(answers).some(([subject, values]) =>
-      !subject.trim() ||
-      !Array.isArray(values) ||
-      values.length > 500 ||
-      values.some((answer) => typeof answer !== "string" || (answer !== "" && !/^[A-E]$/.test(answer))),
-    );
-    if (invalidSubject) {
-      return res.status(400).json({ message: "Cevap anahtarı alanları geçersiz" });
-    }
-
     const exams = await storage.getExams();
     if (!exams.some((exam) => exam.id === examId)) {
       return res.status(404).json({ message: "Sınav bulunamadı" });
@@ -560,17 +566,37 @@ const fs = await import("fs/promises");
     if ((formDesign.version ?? 1) !== formVersion) {
       return res.status(409).json({ message: "Form sürümü değişti; cevap anahtarını yeniden hazırlayın" });
     }
+
+    // Gelen veri çoklu kitapçık mı yoksa tek kitapçık mı kontrolü
+    const firstVal = Object.values(answers)[0];
+    const isMulti = firstVal && typeof firstVal === "object" && !Array.isArray(firstVal);
+    const normalizedBooklets: Record<string, Record<string, string[]>> = isMulti
+      ? (answers as Record<string, Record<string, string[]>>)
+      : { A: answers as Record<string, string[]> };
+
     const expectedSubjects = new Set((formDesign.grids ?? []).map((grid) => grid.subject));
-    if (
-      Object.keys(answers).length !== expectedSubjects.size ||
-      Object.entries(answers).some(([subject, values]) => {
+
+    // Her kitapçık için ders ve soru kontrolleri
+    for (const [bookletKey, subjectAnswers] of Object.entries(normalizedBooklets)) {
+      if (!bookletKey.trim() || typeof subjectAnswers !== "object" || Array.isArray(subjectAnswers)) {
+        return res.status(400).json({ message: `Kitapçık ${bookletKey} formatı geçersiz` });
+      }
+      for (const [subject, values] of Object.entries(subjectAnswers)) {
+        if (!expectedSubjects.has(subject)) {
+          return res.status(422).json({ message: `Geçersiz ders adı: ${subject}` });
+        }
+        if (!Array.isArray(values)) {
+          return res.status(400).json({ message: `${subject} cevap dizisi geçersiz` });
+        }
         const grid = formDesign.grids?.find((item) => item.subject === subject);
-        if (!grid || !Array.isArray(values) || values.length !== grid.questionCount) return true;
+        if (!grid || values.length !== grid.questionCount) {
+          return res.status(422).json({ message: `${subject} dersinde soru sayısı uyuşmuyor (${values.length}/${grid?.questionCount ?? 0})` });
+        }
         const allowed = new Set(Array.from({ length: grid.optionCount }, (_, index) => String.fromCharCode(65 + index)));
-        return values.some((answer) => typeof answer !== "string" || !allowed.has(answer));
-      })
-    ) {
-      return res.status(422).json({ message: "Cevap anahtarı formun ders ve soru yapısıyla uyuşmuyor" });
+        if (values.some((answer) => typeof answer !== "string" || !allowed.has(answer))) {
+          return res.status(422).json({ message: `${subject} dersinde geçersiz seçenek bulundu` });
+        }
+      }
     }
 
     const updatedAt = new Date().toISOString();
@@ -589,7 +615,7 @@ const fs = await import("fs/promises");
       examId,
       formDesignId,
       formVersion,
-      JSON.stringify(answers),
+      JSON.stringify(normalizedBooklets),
       correctPoints,
       incorrectPoints,
       blankPoints,
@@ -851,9 +877,23 @@ const fs = await import("fs/promises");
               blank_points: number;
             } | undefined
           : undefined;
-        const answerKey = answerKeyRow
-          ? JSON.parse(answerKeyRow.answers_json) as Record<string, string[]>
+        const rawAnswerKey: Record<string, unknown> | null = answerKeyRow
+          ? (JSON.parse(answerKeyRow.answers_json) as Record<string, unknown>)
           : null;
+        // Çoklu kitapçık formatı { A: { Türkçe: [...] }, B: {...} } ise
+        // kaydın booklet alanından doğru olanı seç; yoksa A veya ilk olanı kullan.
+        let resolvedAnswerKey: Record<string, string[]> | null = null;
+        if (rawAnswerKey) {
+          const firstVal = Object.values(rawAnswerKey)[0];
+          if (firstVal && typeof firstVal === "object" && !Array.isArray(firstVal)) {
+            const multi = rawAnswerKey as Record<string, Record<string, string[]>>;
+            const scanBooklet = String(scan.booklet || "").trim().toUpperCase();
+            resolvedAnswerKey = multi[scanBooklet] ?? multi["A"] ?? multi[Object.keys(multi)[0]] ?? null;
+          } else {
+            resolvedAnswerKey = rawAnswerKey as Record<string, string[]>;
+          }
+        }
+        const answerKey = resolvedAnswerKey;
         const sourceResults = Array.isArray(scan.results) ? scan.results : [];
         const resultSubjects = sourceResults.map((resultValue) =>
           String((resultValue as Record<string, unknown>).subject || ""),

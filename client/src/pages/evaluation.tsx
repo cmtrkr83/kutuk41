@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/base/buttons/button";
@@ -10,6 +10,21 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ProgressBar } from "@/components/base/progress/progress";
 import { Divider } from "@/components/base/divider/divider";
 import { toast } from "@/components/base/toast/toast";
+import { useRegistry } from "@/context/RegistryContext";
+import {
+  DEFAULT_BOOKLET,
+  FLAT_SUBJECT,
+  flattenSubjectAnswers,
+  isCompleteBookletAnswers,
+  mergeSubjectSpecs,
+  normalizeAnswerLetters,
+  normalizeBookletAnswers,
+  pickBookletAnswers,
+  subjectRanges,
+  subjectsFromAnswers,
+  type BookletAnswers,
+  type SubjectSpec,
+} from "@/lib/optic-evaluation";
 import {
   Upload,
   FileSpreadsheet,
@@ -20,6 +35,8 @@ import {
   BookOpen,
   AlertCircle,
   Download,
+  FileScan,
+  Sparkles,
 } from "lucide-react";
 
 type AnswerChar = "A" | "B" | "C" | "D" | "E" | "";
@@ -31,14 +48,19 @@ interface StudentRow {
   cevaplanan: number;
   cevaplar: AnswerChar[];
   kitapcikTuru: string;
-}
-
-interface AnswerKeyEntry {
-  kitapcikTuru: string;
-  cevaplar: AnswerChar[];
+  dersCevaplari?: Record<string, string[]>;
 }
 
 type SoruSonuc = "dogru" | "yanlis" | "bos";
+
+interface DersSonuc {
+  subject: string;
+  dogru: number;
+  yanlis: number;
+  bos: number;
+  net: number;
+  puan: number;
+}
 
 interface KarsilastirmaSonuc {
   satir: number;
@@ -48,10 +70,15 @@ interface KarsilastirmaSonuc {
   dogru: number;
   yanlis: number;
   bos: number;
+  net: number;
+  puan: number;
   soruSonuclari: SoruSonuc[];
+  dersSonuclari: DersSonuc[];
 }
 
-type CikarmaYontemi = "tum" | "ilk_n" | "son_n" | "ayirici";
+type PenaltyRule = "none" | "3to1" | "4to1";
+
+type CikarmaYontemi = "mevcut" | "tum" | "ilk_n" | "son_n" | "ayirici";
 
 function parseCsvLine(line: string): string[] {
   const row: string[] = [];
@@ -83,23 +110,220 @@ function parseCsv(text: string): string[][] {
 
 const answerOptions: AnswerChar[] = ["A", "B", "C", "D", "E"];
 
+function emptySubjectAnswers(specs: SubjectSpec[]): Record<string, AnswerChar[]> {
+  return Object.fromEntries(
+    specs.map((spec) => [spec.subject, Array.from({ length: spec.questionCount }, () => "" as AnswerChar)]),
+  );
+}
+
 export default function Evaluation() {
+  const { selectedExamId, exams } = useRegistry();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [numQuestions, setNumQuestions] = useState(0);
 
-  const [cikarmaYontemi, setCikarmaYontemi] = useState<CikarmaYontemi>("tum");
+  const [cikarmaYontemi, setCikarmaYontemi] = useState<CikarmaYontemi>("mevcut");
   const [cikarmaParam, setCikarmaParam] = useState("1");
   const [cikarmaAyirici, setCikarmaAyirici] = useState("-");
 
   const [kitapcikTurleri, setKitapcikTurleri] = useState<string[]>([]);
-  const [answerKeys, setAnswerKeys] = useState<AnswerKeyEntry[]>([]);
+  const [answerKeys, setAnswerKeys] = useState<BookletAnswers>({});
+  const [subjects, setSubjects] = useState<SubjectSpec[]>([]);
+  const [penaltyRule, setPenaltyRule] = useState<PenaltyRule>("none");
+  const [loadingSaved, setLoadingSaved] = useState(false);
 
   const [sonuclar, setSonuclar] = useState<KarsilastirmaSonuc[] | null>(null);
   const [parsing, setParsing] = useState(false);
   const [parsingProgress, setParsingProgress] = useState({ current: 0, total: 0, phase: "" as "" | "okunuyor" | "ayristiriliyor" });
+
+  const activeExam = exams.find((e) => e.id === selectedExamId);
+
+  const effectiveSubjects = useMemo<SubjectSpec[]>(() => {
+    if (subjects.length > 0) return subjects;
+    const qCount = numQuestions || students[0]?.cevaplar.length || 0;
+    return qCount > 0 ? [{ subject: FLAT_SUBJECT, questionCount: qCount, optionCount: 5 }] : [];
+  }, [subjects, numQuestions, students]);
+
+  const showSubjectBreakdown = effectiveSubjects.length > 1;
+
+  useEffect(() => {
+    const raw = sessionStorage.getItem("directEvaluationPayload");
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      const payload = Array.isArray(parsed)
+        ? { students: parsed as StudentRow[] }
+        : (parsed as {
+            students?: StudentRow[];
+            subjects?: SubjectSpec[];
+            answerKeys?: Array<{ kitapcikTuru: string; answers: Record<string, string[]> }>;
+          });
+      const payloadStudents = Array.isArray(payload.students) ? payload.students : [];
+      if (payloadStudents.length > 0) {
+        const qCount = payloadStudents[0]?.toplamSoru || payloadStudents[0]?.cevaplar.length || 0;
+        const payloadSubjects = (payload.subjects ?? []).filter((spec) => spec.questionCount > 0);
+        const resolvedSubjects = payloadSubjects.length > 0
+          ? payloadSubjects
+          : qCount > 0
+            ? [{ subject: FLAT_SUBJECT, questionCount: qCount, optionCount: 5 }]
+            : [];
+        const normalizedStudents: StudentRow[] = payloadStudents.map((student) => {
+          const flat = student.dersCevaplari
+            ? flattenSubjectAnswers(resolvedSubjects, student.dersCevaplari)
+            : student.cevaplar;
+          return {
+            ...student,
+            cevaplar: flat.map((char) => (char === "" ? "" : (char as AnswerChar))),
+            toplamSoru: flat.length,
+          };
+        });
+        const normalizedKeys = normalizeBookletAnswers(
+          payload.answerKeys
+            ? Object.fromEntries(payload.answerKeys.map((entry) => [entry.kitapcikTuru, entry.answers]))
+            : {},
+        );
+        const bookletsToUse = Array.from(new Set([
+          ...normalizedStudents.map((student) => student.kitapcikTuru).filter((booklet) => booklet && booklet.trim()),
+          ...Object.keys(normalizedKeys),
+        ]));
+        const finalBooklets = bookletsToUse.length > 0 ? bookletsToUse : [DEFAULT_BOOKLET];
+        setStudents(normalizedStudents);
+        setNumQuestions(normalizedStudents[0]?.toplamSoru ?? qCount);
+        setSubjects(resolvedSubjects);
+        setKitapcikTurleri(finalBooklets);
+        setAnswerKeys(Object.fromEntries(
+          finalBooklets.map((booklet) => [
+            booklet,
+            normalizedKeys[booklet] ?? emptySubjectAnswers(resolvedSubjects),
+          ]),
+        ));
+        setSonuclar(null);
+        toast.success("Optik okuma verileri yüklendi", { description: `${payloadStudents.length} öğrenci aktarıldı.` });
+      }
+    } catch (e) {
+      console.error("Doğrudan değerlendirme yükleme hatası:", e);
+    } finally {
+      sessionStorage.removeItem("directEvaluationPayload");
+    }
+  }, []);
+
+  const handleLoadFromSavedScans = async () => {
+    if (!selectedExamId) {
+      toast.error("Sınav seçilmedi", { description: "Önce başlangıçtan bir sınav seçin." });
+      return;
+    }
+    setLoadingSaved(true);
+    try {
+      const res = await fetch(`/api/optics/scans?examId=${encodeURIComponent(selectedExamId)}`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!res.ok) throw new Error("Kayıtlı taramalar alınamadı");
+      const scans = (await res.json()) as Array<{
+        fileName: string;
+        qr: string;
+        booklet: string;
+        formDesignId?: string;
+        formVersion?: number;
+        results: Array<{
+          subject: string;
+          answers: Array<{ questionNumber: number; answer: string }>;
+        }>;
+      }>;
+      if (scans.length === 0) {
+        toast.error("Tarama kaydı yok", { description: "Bu sınav için kaydedilmiş optik tarama bulunamadı." });
+        return;
+      }
+
+      const subjectCounts = new Map<string, number>();
+      for (const scan of scans) {
+        for (const result of scan.results || []) {
+          const count = result.answers?.length ?? 0;
+          subjectCounts.set(result.subject, Math.max(subjectCounts.get(result.subject) ?? 0, count));
+        }
+      }
+      const scanSubjects: SubjectSpec[] = Array.from(subjectCounts, ([subject, questionCount]) => ({
+        subject,
+        questionCount,
+        optionCount: 5,
+      }));
+
+      const parsed: StudentRow[] = scans.map((scan) => {
+        const dersCevaplari: Record<string, string[]> = {};
+        for (const result of scan.results || []) {
+          dersCevaplari[result.subject] = (result.answers || []).map((answer) =>
+            (answer.answer || "").toUpperCase(),
+          );
+        }
+        const allAnswers = flattenSubjectAnswers(scanSubjects, dersCevaplari);
+        return {
+          dosya: scan.fileName || "",
+          qr: scan.qr || "",
+          kitapcikTuru: (scan.booklet || "").toUpperCase(),
+          toplamSoru: allAnswers.length,
+          cevaplanan: allAnswers.filter(Boolean).length,
+          cevaplar: allAnswers as AnswerChar[],
+          dersCevaplari,
+        };
+      });
+
+      let resolvedSubjects = scanSubjects;
+      let normalizedKeys: BookletAnswers = {};
+      const formScan = scans.find((scan) => scan.formDesignId);
+      if (formScan?.formDesignId) {
+        const query = new URLSearchParams({
+          examId: selectedExamId,
+          formDesignId: formScan.formDesignId,
+          formVersion: String(formScan.formVersion ?? 1),
+        });
+        const keyResponse = await fetch(`/api/optics/answer-keys?${query}`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (keyResponse.ok) {
+          const { answerKey } = (await keyResponse.json()) as { answerKey: { answers: unknown } | null };
+          if (answerKey) {
+            normalizedKeys = normalizeBookletAnswers(answerKey.answers);
+            const keySubjects = subjectsFromAnswers(Object.values(normalizedKeys)[0]);
+            resolvedSubjects = mergeSubjectSpecs(scanSubjects, keySubjects);
+          }
+        }
+      }
+
+      const finalStudents: StudentRow[] = parsed.map((student) => {
+        const flat = flattenSubjectAnswers(resolvedSubjects, student.dersCevaplari);
+        return {
+          ...student,
+          cevaplar: flat.map((char) => (char === "" ? "" : (char as AnswerChar))),
+          toplamSoru: flat.length,
+        };
+      });
+      const scanBooklets = finalStudents
+        .map((student) => student.kitapcikTuru)
+        .filter((booklet) => booklet && booklet.trim());
+      const bookletsToUse = Array.from(new Set([...scanBooklets, ...Object.keys(normalizedKeys)]));
+      const finalBooklets = bookletsToUse.length > 0 ? bookletsToUse : [DEFAULT_BOOKLET];
+
+      setStudents(finalStudents);
+      setNumQuestions(finalStudents[0]?.toplamSoru || 0);
+      setSubjects(resolvedSubjects);
+      setKitapcikTurleri(finalBooklets);
+      setAnswerKeys(Object.fromEntries(
+        finalBooklets.map((booklet) => [
+          booklet,
+          normalizedKeys[booklet] ?? emptySubjectAnswers(resolvedSubjects),
+        ]),
+      ));
+      setSonuclar(null);
+      toast.success("Veriler başarıyla çekildi", { description: `${finalStudents.length} öğrenci taraması yüklendi.` });
+    } catch (err: unknown) {
+      toast.error("Yükleme hatası", { description: err instanceof Error ? err.message : "Bilinmeyen hata" });
+    } finally {
+      setLoadingSaved(false);
+    }
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -112,7 +336,8 @@ export default function Evaluation() {
     setStudents([]);
     setNumQuestions(0);
     setKitapcikTurleri([]);
-    setAnswerKeys([]);
+    setAnswerKeys({});
+    setSubjects([]);
     setSonuclar(null);
     setParsingProgress({ current: 0, total: 0, phase: "" });
   };
@@ -137,6 +362,7 @@ export default function Evaluation() {
       const header = rawRows[0];
       const idxDosya = header.findIndex((h) => h === "Dosya");
       const idxQr = header.findIndex((h) => h === "QR");
+      const idxKitapcik = header.findIndex((h) => h === "Kitapçık Türü");
       const idxToplam = header.findIndex((h) => h === "Toplam Soru");
       const idxCevaplanan = header.findIndex((h) => h === "Cevaplanan");
 
@@ -174,7 +400,7 @@ export default function Evaluation() {
             toplamSoru: idxToplam !== -1 ? parseInt(row[idxToplam]) || 0 : idxQuestions.length,
             cevaplanan: idxCevaplanan !== -1 ? parseInt(row[idxCevaplanan]) || 0 : cevaplar.filter((c) => c !== "").length,
             cevaplar,
-            kitapcikTuru: "",
+            kitapcikTuru: idxKitapcik !== -1 ? (row[idxKitapcik] || "").trim().toUpperCase() : "",
           });
         }
         setParsingProgress({ current: end, total, phase: "ayristiriliyor" });
@@ -195,9 +421,12 @@ export default function Evaluation() {
 
       setStudents(parsed);
       setNumQuestions(detectedQ);
+      setSubjects([]);
       setSonuclar(null);
 
-      extractKitapcikTurleri(parsed, "tum", "", "");
+      extractKitapcikTurleri(parsed, "mevcut", "", "", [
+        { subject: FLAT_SUBJECT, questionCount: detectedQ, optionCount: 5 },
+      ]);
 
       toast(`${parsed.length} öğrenci yüklendi`, { description: `${detectedQ} soru tespit edildi.` });
     } catch (err) {
@@ -207,8 +436,15 @@ export default function Evaluation() {
   }, [csvFile, toast]);
 
   const extractKitapcikTurleri = useCallback(
-    (rows: StudentRow[], yontem: CikarmaYontemi, param: string, ayirici: string): string[] => {
+    (
+      rows: StudentRow[],
+      yontem: CikarmaYontemi,
+      param: string,
+      ayirici: string,
+      specs: SubjectSpec[],
+    ): string[] => {
       const turler = rows.map((s) => {
+        if (yontem === "mevcut") return s.kitapcikTuru?.trim().toUpperCase() || DEFAULT_BOOKLET;
         const qr = s.qr;
         if (!qr) return "(QR yok)";
         switch (yontem) {
@@ -237,15 +473,14 @@ export default function Evaluation() {
       setStudents(updated);
 
       const unique = Array.from(new Set(turler)).sort();
-      setKitapcikTurleri(unique);
+      setKitapcikTurleri(unique.length > 0 ? unique : [DEFAULT_BOOKLET]);
 
-      // Create answer key entries
-      setAnswerKeys(
-        unique.map((t) => ({
-          kitapcikTuru: t,
-          cevaplar: Array(updated[0]?.cevaplar.length ?? 0).fill(""),
-        }))
-      );
+      setAnswerKeys((previous) => Object.fromEntries(
+        (unique.length > 0 ? unique : [DEFAULT_BOOKLET]).map((booklet) => [
+          booklet,
+          previous[booklet] ?? emptySubjectAnswers(specs),
+        ]),
+      ));
 
       return unique;
     },
@@ -254,52 +489,121 @@ export default function Evaluation() {
 
   const handleApplyExtraction = useCallback(() => {
     if (students.length === 0) return;
-    extractKitapcikTurleri(students, cikarmaYontemi, cikarmaParam, cikarmaAyirici);
+    extractKitapcikTurleri(students, cikarmaYontemi, cikarmaParam, cikarmaAyirici, effectiveSubjects);
     setSonuclar(null);
-  }, [students, cikarmaYontemi, cikarmaParam, cikarmaAyirici, extractKitapcikTurleri]);
+  }, [students, cikarmaYontemi, cikarmaParam, cikarmaAyirici, effectiveSubjects, extractKitapcikTurleri]);
 
-  const updateAnswerKey = (kitapcikIdx: number, soruIdx: number, value: AnswerChar) => {
-    setAnswerKeys((prev) => {
-      const next = prev.map((k) => ({ ...k, cevaplar: [...k.cevaplar] }));
-      next[kitapcikIdx].cevaplar[soruIdx] = value;
-      return next;
-    });
+  const updateAnswerKey = (booklet: string, subject: string, value: string) => {
+    setAnswerKeys((previous) => ({
+      ...previous,
+      [booklet]: {
+        ...previous[booklet],
+        [subject]: Array.from(value) as AnswerChar[],
+      },
+    }));
   };
 
   const handleCompare = useCallback(() => {
-    if (students.length === 0 || answerKeys.length === 0) {
+    if (students.length === 0 || Object.keys(answerKeys).length === 0) {
       toast.error("Veri eksik", { description: "Öğrenci cevapları ve cevap anahtarı gerekli." });
       return;
     }
 
-    const keyMap = new Map(answerKeys.map((k) => [k.kitapcikTuru, k.cevaplar]));
-    const results: KarsilastirmaSonuc[] = students.map((s, si) => {
-      const key = keyMap.get(s.kitapcikTuru);
-      const soruSonuclari: SoruSonuc[] = s.cevaplar.map((c, qi) => {
-        if (c === "") return "bos";
-        if (key && key[qi] === c) return "dogru";
-        return "yanlis";
+    const incompleteBooklets = kitapcikTurleri.filter(
+      (booklet) => !isCompleteBookletAnswers(effectiveSubjects, answerKeys[booklet]),
+    );
+    if (incompleteBooklets.length > 0) {
+      toast.error("Cevap anahtarı eksik", {
+        description: `${incompleteBooklets.join(", ")} kitapçığında eksik ders/soru var.`,
       });
+      return;
+    }
+
+    const penaltyDivider = penaltyRule === "3to1" ? 3 : penaltyRule === "4to1" ? 4 : 0;
+    const ranges = subjectRanges(effectiveSubjects);
+    const missingBooklets = new Set<string>();
+
+    const results: KarsilastirmaSonuc[] = students.map((s, si) => {
+      const key = pickBookletAnswers(answerKeys, s.kitapcikTuru);
+      if (!key) missingBooklets.add(s.kitapcikTuru || "(kitapçık yok)");
+      const expected = key ? flattenSubjectAnswers(effectiveSubjects, key) : [];
+      const soruSonuclari: SoruSonuc[] = s.cevaplar.map((c, qi) => {
+        if (!key || !expected[qi] || c === "") return "bos";
+        return expected[qi] === c ? "dogru" : "yanlis";
+      });
+
+      const dersSonuclari: DersSonuc[] = ranges.map((range) => {
+        const slice = soruSonuclari.slice(range.start, range.end);
+        const dogru = slice.filter((r) => r === "dogru").length;
+        const yanlis = slice.filter((r) => r === "yanlis").length;
+        const bos = slice.filter((r) => r === "bos").length;
+        const netRaw = penaltyDivider > 0 ? dogru - yanlis / penaltyDivider : dogru;
+        const net = Math.max(0, parseFloat(netRaw.toFixed(2)));
+        const puan = parseFloat(((net / Math.max(1, slice.length)) * 100).toFixed(2));
+        return { subject: range.subject, dogru, yanlis, bos, net, puan };
+      });
+
       const dogru = soruSonuclari.filter((r) => r === "dogru").length;
       const yanlis = soruSonuclari.filter((r) => r === "yanlis").length;
       const bos = soruSonuclari.filter((r) => r === "bos").length;
-      return { satir: si + 1, dosya: s.dosya, qr: s.qr, kitapcikTuru: s.kitapcikTuru, dogru, yanlis, bos, soruSonuclari };
+      const net = parseFloat(dersSonuclari.reduce((sum, item) => sum + item.net, 0).toFixed(2));
+      const totalQ = s.toplamSoru || soruSonuclari.length || 1;
+      const puan = parseFloat(((net / totalQ) * 100).toFixed(2));
+
+      return {
+        satir: si + 1,
+        dosya: s.dosya,
+        qr: s.qr,
+        kitapcikTuru: s.kitapcikTuru,
+        dogru,
+        yanlis,
+        bos,
+        net,
+        puan,
+        soruSonuclari,
+        dersSonuclari,
+      };
     });
 
     setSonuclar(results);
-    toast.success("Karşılaştırma tamam", { description: `${results.length} öğrenci değerlendirildi.` });
-  }, [students, answerKeys, toast]);
+    if (missingBooklets.size > 0) {
+      toast.error("Kitapçık anahtarı bulunamadı", {
+        description: `${Array.from(missingBooklets).join(", ")} için cevap anahtarı yok; bu öğrenciler boş sayıldı.`,
+      });
+    } else {
+      toast.success("Karşılaştırma tamam", { description: `${results.length} öğrenci değerlendirildi.` });
+    }
+  }, [students, answerKeys, kitapcikTurleri, effectiveSubjects, penaltyRule, toast]);
 
   const sonucToCsv = useCallback(() => {
     if (!sonuclar || sonuclar.length === 0) return;
-    const header = ["#", "Dosya", "QR", "Kitapçık Türü", "Doğru", "Yanlış", "Boş",
-      ...Array.from({ length: numQuestions }, (_, i) => `Soru ${i + 1}`)];
+    const header = [
+      "#",
+      "Dosya",
+      "QR",
+      "Kitapçık Türü",
+      "Doğru",
+      "Yanlış",
+      "Boş",
+      "Net",
+      "Puan (%100)",
+      ...effectiveSubjects.map((spec) => `${spec.subject} Net`),
+      ...Array.from({ length: numQuestions }, (_, i) => `Soru ${i + 1}`),
+    ];
     const rows = sonuclar.map((s) => [
-      String(s.satir), s.dosya, s.qr, s.kitapcikTuru,
-      String(s.dogru), String(s.yanlis), String(s.bos),
-      ...s.soruSonuclari.map((r) => r === "dogru" ? "✓" : r === "yanlis" ? "✗" : "—"),
+      String(s.satir),
+      s.dosya,
+      s.qr,
+      s.kitapcikTuru,
+      String(s.dogru),
+      String(s.yanlis),
+      String(s.bos),
+      String(s.net),
+      String(s.puan),
+      ...s.dersSonuclari.map((item) => String(item.net)),
+      ...s.soruSonuclari.map((r) => (r === "dogru" ? "✓" : r === "yanlis" ? "✗" : "—")),
     ]);
-    const csv = "\uFEFF" + [header.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const csv = "\uFEFF" + [header.join(";"), ...rows.map((r) => r.join(";"))].join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -307,7 +611,7 @@ export default function Evaluation() {
     a.download = "degerlendirme-sonuc.csv";
     a.click();
     URL.revokeObjectURL(url);
-  }, [sonuclar, numQuestions]);
+  }, [sonuclar, numQuestions, effectiveSubjects]);
 
   return (
     <div className="space-y-6">
@@ -316,36 +620,50 @@ export default function Evaluation() {
         <div>
           <h1 className="text-title-1-semibold tracking-tight text-text-primary">Değerlendirme</h1>
           <p className="mt-1 text-body-regular text-text-secondary">
-            Optik okuma CSV dosyasını yükleyin, cevap anahtarlarını girin, sonuçları karşılaştırın.
+            Optik okuma sonuçlarını yükleyin, cevap anahtarlarını girin ve net/puan karşılaştırması yapın.
           </p>
+          {activeExam && (
+            <p className="mt-1 text-caption-1-medium text-accent-600">
+              Aktif Sınav: {activeExam.name}
+            </p>
+          )}
         </div>
       </div>
 
       <Divider />
 
-      {/* 1. CSV Yükleme */}
+      {/* 1. Veri Yükleme */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Upload className="w-5 h-5" />
-            1. CSV Dosyası Yükle
+            1. Veri Kaynağı Seçin
           </CardTitle>
           <CardDescription>
-            Optik Okuma sayfasından indirdiğiniz CSV dosyasını seçin.
+            Sistemdeki kayıtlı optik taramalardan doğrudan çekebilir veya harici bir CSV dosyası yükleyebilirsiniz.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              variant="secondary"
+              onClick={handleLoadFromSavedScans}
+              disabled={loadingSaved || !selectedExamId}
+              leadingIcon={loadingSaved ? Loader2 : FileScan}
+            >
+              {loadingSaved ? "Taramalar Yükleniyor..." : "Aktif Sınavın Taramalarından Yükle"}
+            </Button>
+            <span className="text-caption-1-medium text-text-tertiary">veya CSV seçin:</span>
             <Input
               ref={fileInputRef}
               type="file"
               accept=".csv"
               onChange={handleFileChange}
-              fieldClassName="max-w-sm"
+              fieldClassName="max-w-xs"
             />
             <Button onClick={handleParseCsv} disabled={!csvFile || parsing} variant="ghost">
               {parsing ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <FileSpreadsheet className="w-4 h-4 mr-2" />}
-              {parsing ? "Ayrıştırılıyor..." : "Yükle & Ayrıştır"}
+              {parsing ? "Ayrıştırılıyor..." : "CSV'yi Yükle & Ayrıştır"}
             </Button>
           </div>
           {parsing && (
@@ -394,8 +712,9 @@ export default function Evaluation() {
                 <Select
                   selectedKey={cikarmaYontemi}
                   onSelectionChange={(key) => setCikarmaYontemi(String(key) as CikarmaYontemi)}
-                  triggerClassName="w-44"
+                  triggerClassName="w-56"
                 >
+                  <SelectItem id="mevcut">Mevcut kitapçık değerini koru</SelectItem>
                   <SelectItem id="tum">QR'ın Tamamı</SelectItem>
                   <SelectItem id="ilk_n">İlk N Karakter</SelectItem>
                   <SelectItem id="son_n">Son N Karakter</SelectItem>
@@ -505,56 +824,70 @@ export default function Evaluation() {
               3. Cevap Anahtarları
             </CardTitle>
             <CardDescription>
-              Her kitapçık türü için doğru cevapları girin ({numQuestions} soru).
+              Her kitapçık türü için ders bazında doğru cevapları girin (toplam {numQuestions} soru).
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            {kitapcikTurleri.map((tur, ki) => (
-              <div key={tur}>
-                <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
-                  <BookOpen className="w-4 h-4 text-text-tertiary" />
-                  Kitapçık Türü: <Chip variant="subtle" color="blue">{tur}</Chip>
-                </h3>
-                <div className="border rounded-md overflow-auto max-h-96">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-16 text-center">Soru</TableHead>
-                        {answerKeys[ki]?.cevaplar.map((_, si) => (
-                          <TableHead key={si} className="text-center w-14">Soru {si + 1}</TableHead>
-                        ))}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      <TableRow>
-                        <TableCell className="text-center font-medium text-text-tertiary">Cevap</TableCell>
-                        {answerKeys[ki]?.cevaplar.map((_, si) => (
-                          <TableCell key={si} className="text-center p-1">
-                            <Select
-                              selectedKey={answerKeys[ki]?.cevaplar[si] || "__"}
-                              onSelectionChange={(key) => { const v = String(key); updateAnswerKey(ki, si, v === "__" ? "" : (v as AnswerChar)); }}
-                              size="sm"
-                              triggerClassName="w-14 mx-auto"
-                              placeholder="—"
-                            >
-                              <SelectItem id="__">—</SelectItem>
-                              {answerOptions.map((opt) => (
-                                <SelectItem key={opt} id={opt}>{opt}</SelectItem>
-                              ))}
-                            </Select>
-                          </TableCell>
-                        ))}
-                      </TableRow>
-                    </TableBody>
-                  </Table>
+            {kitapcikTurleri.map((booklet) => {
+              const bookletAnswers = answerKeys[booklet] ?? {};
+              const completeCount = effectiveSubjects.filter(
+                (spec) => (bookletAnswers[spec.subject]?.length ?? 0) === spec.questionCount,
+              ).length;
+              return (
+                <div key={booklet} className="space-y-3 rounded-lg border border-separator-border p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold flex items-center gap-2">
+                      <BookOpen className="w-4 h-4 text-text-tertiary" />
+                      Kitapçık Türü: <Chip variant="subtle" color="blue">{booklet}</Chip>
+                    </h3>
+                    <span className="text-xs text-text-tertiary">
+                      {completeCount}/{effectiveSubjects.length} ders tamam
+                    </span>
+                  </div>
+                  {effectiveSubjects.map((spec) => {
+                    const value = (bookletAnswers[spec.subject] ?? []).join("");
+                    const allowed = answerOptions.slice(0, spec.optionCount);
+                    return (
+                      <div key={spec.subject} className="space-y-1">
+                        <Label htmlFor={`eval-key-${booklet}-${spec.subject}`}>
+                          {spec.subject} · {value.length}/{spec.questionCount} soru · {allowed.join("/")}
+                        </Label>
+                        <Input
+                          id={`eval-key-${booklet}-${spec.subject}`}
+                          value={value}
+                          placeholder={`${spec.questionCount} cevap (örn. ${allowed.join("")}...)`}
+                          onChange={(event) =>
+                            updateAnswerKey(
+                              booklet,
+                              spec.subject,
+                              normalizeAnswerLetters(event.target.value, spec.questionCount, spec.optionCount),
+                            )
+                          }
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
-            <Button onClick={handleCompare} size="medium" className="w-full" variant="ghost" leadingIcon={CheckCircle2}>
-              
-              Karşılaştır
-            </Button>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+              <div>
+                <Label className="text-caption-1-medium mb-1.5 block">Net / Ceza Puanı Kuralı</Label>
+                <Select
+                  selectedKey={penaltyRule}
+                  onSelectionChange={(key) => setPenaltyRule(String(key) as PenaltyRule)}
+                  size="sm"
+                >
+                  <SelectItem id="none">Yanlış doğruyu götürmez (Net = Doğru)</SelectItem>
+                  <SelectItem id="3to1">3 Yanlış 1 Doğruyu Götürür (Ortaokul / LGS)</SelectItem>
+                  <SelectItem id="4to1">4 Yanlış 1 Doğruyu Götürür (Lise / YKS)</SelectItem>
+                </Select>
+              </div>
+              <Button onClick={handleCompare} size="medium" className="w-full" variant="ghost" leadingIcon={CheckCircle2}>
+                Karşılaştır & Değerlendir
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -568,7 +901,7 @@ export default function Evaluation() {
               4. Karşılaştırma Sonuçları
             </CardTitle>
             <CardDescription>
-              {sonuclar.length} öğrenci değerlendirildi. Ortalama doğru: {(sonuclar.reduce((s, r) => s + r.dogru, 0) / sonuclar.length).toFixed(1)}
+              {sonuclar.length} öğrenci değerlendirildi. Ortalama doğru: {(sonuclar.reduce((s, r) => s + r.dogru, 0) / sonuclar.length).toFixed(1)} · Ortalama Net: {(sonuclar.reduce((s, r) => s + r.net, 0) / sonuclar.length).toFixed(2)}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -582,6 +915,11 @@ export default function Evaluation() {
                     <TableHead className="text-center text-status-lime-text">Doğru</TableHead>
                     <TableHead className="text-center text-status-rose-text">Yanlış</TableHead>
                     <TableHead className="text-center text-text-tertiary">Boş</TableHead>
+                    <TableHead className="text-center font-semibold text-accent-600">Net</TableHead>
+                    <TableHead className="text-center font-semibold text-text-primary">Puan</TableHead>
+                    {showSubjectBreakdown && effectiveSubjects.map((spec) => (
+                      <TableHead key={spec.subject} className="text-center">{spec.subject}</TableHead>
+                    ))}
                     {Array.from({ length: Math.min(numQuestions, 8) }, (_, i) => (
                       <TableHead key={i} className="text-center w-10">S.{i + 1}</TableHead>
                     ))}
@@ -597,6 +935,16 @@ export default function Evaluation() {
                       <TableCell className="text-center font-medium text-status-lime-text">{s.dogru}</TableCell>
                       <TableCell className="text-center font-medium text-status-rose-text">{s.yanlis}</TableCell>
                       <TableCell className="text-center font-medium text-text-tertiary">{s.bos}</TableCell>
+                      <TableCell className="text-center font-bold text-accent-600">{s.net}</TableCell>
+                      <TableCell className="text-center font-bold text-text-primary">{s.puan}</TableCell>
+                      {showSubjectBreakdown && s.dersSonuclari.map((item) => (
+                        <TableCell key={item.subject} className="text-center">
+                          <span className="font-semibold text-accent-600">{item.net}</span>
+                          <span className="block text-[10px] text-text-tertiary">
+                            {item.dogru}D/{item.yanlis}Y/{item.bos}B
+                          </span>
+                        </TableCell>
+                      ))}
                       {s.soruSonuclari.slice(0, 8).map((r, qi) => (
                         <TableCell key={qi} className="text-center">
                           {r === "dogru" ? (
@@ -640,12 +988,16 @@ export default function Evaluation() {
                 </p>
               </div>
               <div className="bg-background-secondary-default rounded-lg p-3 flex-1 min-w-[120px]">
-                <p className="text-xs text-text-tertiary">Toplam Doğru</p>
-                <p className="text-2xl font-bold">{sonuclar.reduce((s, r) => s + r.dogru, 0)}</p>
+                <p className="text-xs text-text-tertiary">Ortalama Net</p>
+                <p className="text-2xl font-bold text-accent-600">
+                  {(sonuclar.reduce((s, r) => s + r.net, 0) / sonuclar.length).toFixed(2)}
+                </p>
               </div>
               <div className="bg-background-secondary-default rounded-lg p-3 flex-1 min-w-[120px]">
-                <p className="text-xs text-text-tertiary">Toplam Yanlış</p>
-                <p className="text-2xl font-bold">{sonuclar.reduce((s, r) => s + r.yanlis, 0)}</p>
+                <p className="text-xs text-text-tertiary">Ortalama Puan</p>
+                <p className="text-2xl font-bold text-text-primary">
+                  {(sonuclar.reduce((s, r) => s + r.puan, 0) / sonuclar.length).toFixed(1)}
+                </p>
               </div>
             </div>
 

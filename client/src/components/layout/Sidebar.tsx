@@ -59,7 +59,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       <div className="border-b border-separator-border px-5 py-5">
         <div className="min-w-0">
           <h1 className="text-title-3-semibold tracking-tight text-text-primary">ODM Kütük</h1>
-          <p className="mt-0.5 text-caption-2-regular text-text-tertiary">Sınav yönetim sistemi</p>
+          <p className="mt-0.5 text-caption-2-regular text-text-tertiary">Sınav Yönetim Sistemi</p>
         </div>
       </div>
 
@@ -79,7 +79,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         </div>
         <div className="rounded-xl bg-background-secondary-default px-3 py-2.5 text-caption-2-regular text-text-tertiary">
           <p className="text-caption-1-semibold text-text-primary">Versiyon 2.2.3</p>
-          <p className="mt-1">Kütük Yönetim Sistemi</p>
+          <p className="mt-1">Sınav Yönetim Sistemi</p>
         </div>
       </div>
     </>

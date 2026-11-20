@@ -28,7 +28,7 @@ import {
   resolveColumnValue,
   snapToGrid,
 } from "@/lib/optic-coding";
-import { AlertCircle, GripVertical, Plus, Printer, QrCode, Save, Trash2 } from "lucide-react";
+import { AlertCircle, GripVertical, Plus, Printer, QrCode, Save, Sparkles, Trash2 } from "lucide-react";
 
 const DRAG_SNAP_MM = 1;
 /** Alan listesinde "bağlı değil" seçeneğinin anahtarı (boş RAC anahtarı olamaz). */
@@ -372,6 +372,99 @@ export default function OpticCoding() {
     if (selectedElementId === id) setSelectedElementId(null);
   };
 
+  const handleAutoBind = () => {
+    if (!selectedDesign) {
+      toast.error("Form seçilmedi", { description: "Önce bir optik form tasarımı seçin." });
+      return;
+    }
+    if (availableColumns.length === 0) {
+      toast.error("Kütük sütunu bulunamadı", { description: "Kütük verisinde sütun bulunmuyor." });
+      return;
+    }
+
+    const normalize = (s: string) =>
+      s
+        .toLowerCase()
+        .replace(/ğ/g, "g")
+        .replace(/ü/g, "u")
+        .replace(/ş/g, "s")
+        .replace(/ı/g, "i")
+        .replace(/ö/g, "o")
+        .replace(/ç/g, "c")
+        .replace(/[^a-z0-9]/g, "");
+
+    const newElements: CodingElement[] = [...elements];
+    let matchedCount = 0;
+
+    for (const field of selectedDesign.fields) {
+      if (isHeadingField(field)) continue;
+      if (newElements.some((el) => el.boundFieldId === field.id)) continue;
+
+      const normField = normalize(field.label);
+
+      const matchedCol = availableColumns.find((col) => {
+        const normCol = normalize(col.label);
+        if (normField === normCol) return true;
+        if (normField.includes("tc") || normField.includes("kimlik")) {
+          return normCol.includes("tc") || normCol.includes("kimlik") || col.key === "studentNo";
+        }
+        if (normField.includes("ad") && (normField.includes("soyad") || normField.includes("ogrenci"))) {
+          return (normCol.includes("ad") && normCol.includes("soyad")) || col.key === "fullName";
+        }
+        if (normField.includes("okul") || normField.includes("kurum")) {
+          return normCol.includes("okul") || normCol.includes("kurum") || col.key === "schoolName";
+        }
+        if (normField.includes("sinif") || normField.includes("sube")) {
+          return normCol.includes("sinif") || normCol.includes("sube") || col.key === "class";
+        }
+        if (normField.includes("numara") || normField.includes("no")) {
+          return normCol.includes("numara") || normCol.includes("no") || col.key === "schoolNo";
+        }
+        return false;
+      });
+
+      if (matchedCol && !newElements.some((el) => el.columnKey === matchedCol.key)) {
+        newElements.push({
+          id: generateCodingId(),
+          columnKey: matchedCol.key,
+          label: matchedCol.label,
+          xMm: field.xMm ?? 10,
+          yMm: field.yMm ?? 10,
+          kind: "text",
+          boundFieldId: field.id,
+        });
+        matchedCount++;
+      }
+    }
+
+    if (!newElements.some((el) => el.kind === "qr")) {
+      const tcCol = availableColumns.find(
+        (c) => normalize(c.label).includes("tc") || normalize(c.label).includes("kimlik") || c.key === "studentNo",
+      );
+      if (tcCol) {
+        newElements.push({
+          id: generateCodingId(),
+          columnKey: tcCol.key,
+          label: `QR (${tcCol.label})`,
+          xMm: paper.widthMm - QR_DEFAULT_SIZE_MM - 12,
+          yMm: 12,
+          kind: "qr",
+          qrSizeMm: QR_DEFAULT_SIZE_MM,
+        });
+        matchedCount++;
+      }
+    }
+
+    if (matchedCount > 0) {
+      setElements(newElements);
+      toast.success("Akıllı eşleştirme tamamlandı", {
+        description: `${matchedCount} alan form ile otomatik bağlandı.`,
+      });
+    } else {
+      toast.info("Tüm alanlar zaten eşleşmiş durumda.");
+    }
+  };
+
   const onOverlayPointerDown = (e: React.PointerEvent, el: CodingElement) => {
     if (e.button !== 0) return;
     e.preventDefault();
@@ -625,9 +718,20 @@ export default function OpticCoding() {
 
             {selectedDesign && (
               <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Excel Sütunları</CardTitle>
-                  <CardDescription>Bir sütunu sürükleyip forma bırakın veya + ile ekleyin.</CardDescription>
+                <CardHeader className="space-y-1.5 pb-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <CardTitle className="text-base">Excel Sütunları</CardTitle>
+                    <Button
+                      size="small"
+                      variant="secondary"
+                      onClick={handleAutoBind}
+                      leadingIcon={Sparkles}
+                      title="Formdaki kutularla Excel sütunlarını otomatik eşleştirir"
+                    >
+                      Akıllı Eşleştir
+                    </Button>
+                  </div>
+                  <CardDescription>Bir sütunu sürükleyip forma bırakın veya otomatik eşleştirin.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-1" style={{ maxHeight: 360, overflowY: "auto" }}>
                   {availableColumns.length === 0 && <p className="text-sm text-text-tertiary">Yüklenen veride sütun yok.</p>}

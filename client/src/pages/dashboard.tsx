@@ -59,7 +59,7 @@ export default function Dashboard() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div className="flex-1">
           <h1 className="text-title-1-semibold text-text-primary">Genel Bakış</h1>
-          <p className="mt-1 text-body-regular text-text-secondary">Sınav kütük sistemi durum özeti ve istatistikler.</p>
+          <p className="mt-1 text-body-regular text-text-secondary">Sınav yönetim sistemi durum özeti ve istatistikler.</p>
           {selectedExam && (
             <div className="mt-3 flex items-center gap-2">
               <BookOpen className="h-4 w-4 text-accent-600" />

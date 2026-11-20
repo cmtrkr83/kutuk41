@@ -55,13 +55,15 @@ export default function BranchLabels() {
 	const MARGIN_LEFT = 1;
 	const MARGIN_RIGHT = 1;
 	const GRID_GAP_MM = 2;
-	const horizontalGapTotal = Math.max(0, cols - 1) * GRID_GAP_MM;
-	const verticalGapTotal = Math.max(0, rows - 1) * GRID_GAP_MM;
+	const safeRows = Math.max(1, Number(rows) || 1);
+	const safeCols = Math.max(1, Number(cols) || 1);
+	const horizontalGapTotal = Math.max(0, safeCols - 1) * GRID_GAP_MM;
+	const verticalGapTotal = Math.max(0, safeRows - 1) * GRID_GAP_MM;
 	const usableHeight = A4_HEIGHT - MARGIN_TOP - MARGIN_BOTTOM - verticalGapTotal;
 	const usableWidth = A4_WIDTH - MARGIN_LEFT - MARGIN_RIGHT - horizontalGapTotal;
 
-	const labelHeight = usableHeight / rows;
-	const labelWidth = usableWidth / cols;
+	const labelHeight = usableHeight / safeRows;
+	const labelWidth = usableWidth / safeCols;
 
 	// Şubeleri oluştur: Seçili okullardaki öğrencileri şubelerine göre grupla
 	const branches: Branch[] = [];
@@ -118,7 +120,7 @@ export default function BranchLabels() {
 	});
 
 	// Sayfa oluştur
-	const labelsPerPage = rows * cols;
+	const labelsPerPage = Math.max(1, safeRows * safeCols);
 	const totalLabels = branches.length;
 	const totalPages = Math.max(1, Math.ceil(totalLabels / labelsPerPage));
 	const pages = Array.from({ length: totalPages }, (_, pageIdx) => {
@@ -385,7 +387,20 @@ export default function BranchLabels() {
 									min="1"
 									max="10"
 									value={rows}
-									onChange={(e) => setRows(Number(e.target.value))}
+									onChange={(e) => {
+										const v = e.target.value;
+										if (v === "") {
+											setRows(1);
+											return;
+										}
+										const num = parseInt(v, 10);
+										if (!isNaN(num)) {
+											setRows(Math.max(1, Math.min(10, num)));
+										}
+									}}
+									onBlur={() => {
+										if (!rows || rows < 1) setRows(1);
+									}}
 								/>
 							</div>
 							<div className="space-y-2">
@@ -396,7 +411,20 @@ export default function BranchLabels() {
 									min="1"
 									max="5"
 									value={cols}
-									onChange={(e) => setCols(Number(e.target.value))}
+									onChange={(e) => {
+										const v = e.target.value;
+										if (v === "") {
+											setCols(1);
+											return;
+										}
+										const num = parseInt(v, 10);
+										if (!isNaN(num)) {
+											setCols(Math.max(1, Math.min(5, num)));
+										}
+									}}
+									onBlur={() => {
+										if (!cols || cols < 1) setCols(1);
+									}}
 								/>
 							</div>
 						</div>
