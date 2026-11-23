@@ -6,6 +6,7 @@ import { Label } from "@/components/base/input/label";
 import { FileText, Printer, Eye, ChevronLeft, ChevronRight, MapPin, School, ListChecks } from "lucide-react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
+import { createReportContainer, REPORT_CANVAS_OPTIONS } from "@/lib/pdf/report-canvas";
 import { useRegistry, type Student } from "@/context/RegistryContext";
 import { toast } from "@/components/base/toast/toast";
 
@@ -202,30 +203,21 @@ export default function RoomLists() {
       // Render each section separately to avoid vertical overlap
       for (let si = 0; si < htmlSections.length; si++) {
         const sectionHtml = htmlSections[si];
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = sectionHtml;
-        tempDiv.style.position = 'absolute';
-        tempDiv.style.left = '-9999px';
-        tempDiv.style.width = '800px';
-        document.body.appendChild(tempDiv);
+        const tempDiv = createReportContainer(sectionHtml, 800);
 
-        // render this single page
-        // await html2canvas for this section
-        // reduce scale if memory issues arise
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-ignore
-        const canvas = await html2canvas(tempDiv, { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' });
+        try {
+          const canvas = await html2canvas(tempDiv, REPORT_CANVAS_OPTIONS);
 
-        const imgData = canvas.toDataURL('image/png');
-        const imgWidth = pdf.internal.pageSize.getWidth() - 10;
-        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+          const imgData = canvas.toDataURL('image/png');
+          const imgWidth = pdf.internal.pageSize.getWidth() - 10;
+          const imgHeight = (canvas.height * imgWidth) / canvas.width;
 
-        // For first section, just add image; for subsequent, add a new page first
-        if (si > 0) pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 5, 5, imgWidth, imgHeight);
-
-        // cleanup
-        document.body.removeChild(tempDiv);
+          // For first section, just add image; for subsequent, add a new page first
+          if (si > 0) pdf.addPage();
+          pdf.addImage(imgData, 'PNG', 5, 5, imgWidth, imgHeight);
+        } finally {
+          tempDiv.remove();
+        }
       }
 
       // build filename

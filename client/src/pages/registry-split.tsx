@@ -8,6 +8,7 @@ import { toast } from "@/components/base/toast/toast";
 import { useRegistry } from "@/context/RegistryContext";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
+import { createReportContainer, REPORT_CANVAS_OPTIONS } from "@/lib/pdf/report-canvas";
 import JSZip from "jszip";
 
 export default function RegistrySplit() {
@@ -268,21 +269,10 @@ export default function RegistrySplit() {
       throw new Error("Yazdırılacak okul verisi bulunamadı.");
     }
 
-    const tempDiv = document.createElement("div");
-    tempDiv.innerHTML = buildDistrictHtmlTable(districtName, schoolData);
-    tempDiv.style.position = "absolute";
-    tempDiv.style.left = "-10000px";
-    tempDiv.style.top = "0";
-    tempDiv.style.width = "680px";
-    document.body.appendChild(tempDiv);
+    const tempDiv = createReportContainer(buildDistrictHtmlTable(districtName, schoolData), 680);
 
     try {
-      const canvas = await html2canvas(tempDiv, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        backgroundColor: "#ffffff",
-      });
+      const canvas = await html2canvas(tempDiv, REPORT_CANVAS_OPTIONS);
       const pdf = new jsPDF("p", "mm", "a4");
       const imgData = canvas.toDataURL("image/png");
       const pageWidth = pdf.internal.pageSize.getWidth();
