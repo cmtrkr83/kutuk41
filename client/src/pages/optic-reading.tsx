@@ -8,6 +8,7 @@ import { InputBase as Input } from "@/components/base/input/input";
 import { Label } from "@/components/base/input/label";
 import { Chip } from "@/components/base/badges/chip";
 import { Select, SelectItem } from "@/components/base/select/select";
+import { ProgressBar } from "@/components/base/progress/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AlertCircle, CheckCircle2, ClipboardCheck, Download, FileScan, Loader2, Save, Upload, XCircle } from "lucide-react";
 import { useLocation } from "wouter";
@@ -124,6 +125,41 @@ function optionLetters(count: number): string[] {
 
 const READ_CHUNK_SIZE = 10;
 
+type ReadPhase = "convert" | "upload" | "read";
+
+interface ReadProgress {
+  phase: ReadPhase;
+  done: number;
+  total: number;
+  detail: string;
+}
+
+const READ_STAGES: Array<{ phase: ReadPhase; label: string }> = [
+  { phase: "convert", label: "PDF çevirme" },
+  { phase: "upload", label: "Yükleme" },
+  { phase: "read", label: "Okuma" },
+];
+
+const PHASE_TITLE: Record<ReadPhase, string> = {
+  convert: "PDF sayfaları çevriliyor",
+  upload: "Sayfalar sunucuya yükleniyor",
+  read: "Sayfalar okunuyor",
+};
+
+const PHASE_BUTTON: Record<ReadPhase, string> = {
+  convert: "Çevriliyor",
+  upload: "Yükleniyor",
+  read: "Okunuyor",
+};
+
+function isPdfFile(file: File): boolean {
+  return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+}
+
+function isSupportedFile(file: File): boolean {
+  return isPdfFile(file) || /^image\/(jpeg|png)$/.test(file.type) || /\.(jpe?g|png)$/i.test(file.name);
+}
+
 function csvCell(value: string): string {
   return /[;"\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
@@ -138,12 +174,12 @@ export default function OpticReading() {
   const [manifest, setManifest] = useState<OpticManifest | null>(null);
 
   const [files, setFiles] = useState<File[]>([]);
-  const [isConvertingPdf, setIsConvertingPdf] = useState(false);
   const [isReading, setIsReading] = useState(false);
-  const [progress, setProgress] = useState<{ phase: "upload" | "read"; done: number; total: number }>({
-    phase: "upload",
+  const [progress, setProgress] = useState<ReadProgress>({
+    phase: "convert",
     done: 0,
     total: 0,
+    detail: "",
   });
   const [results, setResults] = useState<ReadResult[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
@@ -408,42 +444,21 @@ export default function OpticReading() {
     setSelected(null);
   };
 
-  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const fileList = event.target.files;
     if (!fileList || fileList.length === 0) return;
 
-    const images: File[] = [];
-    const pdfs: File[] = [];
-    for (const file of Array.from(fileList)) {
-      if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
-        pdfs.push(file);
-      } else {
-        images.push(file);
-      }
-    }
-
-    if (pdfs.length > 0) {
-      setIsConvertingPdf(true);
-      try {
-        for (const pdf of pdfs) {
-          images.push(...(await pdfToJpegFiles(pdf)));
-        }
-      } catch {
-        toast.error("PDF hatası", { description: "PDF sayfaları dönüştürülemedi." });
-        setIsConvertingPdf(false);
-        return;
-      }
-      setIsConvertingPdf(false);
-    }
-
-    if (images.length === 0) {
+    const selected = Array.from(fileList).filter(isSupportedFile);
+    if (selected.length === 0) {
       toast.error("Geçersiz dosya", { description: "JPEG, PNG veya PDF dosyası seçin." });
+      event.target.value = "";
       return;
     }
 
-    setFiles(images);
+    setFiles(selected);
     setResults([]);
     setSelected(null);
+    setProgress({ phase: "convert", done: 0, total: 0, detail: "" });
     event.target.value = "";
   };
 
@@ -470,23 +485,59 @@ export default function OpticReading() {
     }
 
     setIsReading(true);
-    setProgress({ phase: "upload", done: 0, total: files.length });
     setResults([]);
     setSelected(null);
+
+    // 1. aşama: PDF'ler burada, okuma sırasında sayfa sayfa JPEG'e çevrilir.
+    const pdfCount = files.filter(isPdfFile).length;
+    const pages: File[] = [];
+    setProgress({ phase: pdfCount > 0 ? "convert" : "upload", done: 0, total: 0, detail: "" });
+    try {
+      let pdfIndex = 0;
+      for (const source of files) {
+        if (!isPdfFile(source)) {
+          pages.push(source);
+          continue;
+        }
+        pdfIndex += 1;
+        setProgress({ phase: "convert", done: 0, total: 0, detail: `${source.name} açılıyor…` });
+        const converted = await pdfToJpegFiles(source, {
+          onProgress: ({ page, totalPages }) =>
+            setProgress({
+              phase: "convert",
+              done: page,
+              total: totalPages,
+              detail: `${source.name} · sayfa ${page}/${totalPages}${pdfCount > 1 ? ` · PDF ${pdfIndex}/${pdfCount}` : ""}`,
+            }),
+        });
+        pages.push(...converted);
+      }
+    } catch {
+      toast.error("PDF hatası", { description: "PDF sayfaları JPEG'e dönüştürülemedi." });
+      setIsReading(false);
+      setProgress({ phase: "convert", done: 0, total: 0, detail: "" });
+      return;
+    }
 
     const collected: ReadResult[] = [];
     try {
       const manifest = buildOpticFormManifest(design);
-      for (let start = 0; start < files.length; start += READ_CHUNK_SIZE) {
-        const chunk = files.slice(start, start + READ_CHUNK_SIZE);
+      for (let start = 0; start < pages.length; start += READ_CHUNK_SIZE) {
+        const chunk = pages.slice(start, start + READ_CHUNK_SIZE);
+        const range = `${start + 1}-${start + chunk.length} / ${pages.length} sayfa`;
         try {
           const paths: string[] = [];
           for (let i = 0; i < chunk.length; i++) {
             paths.push(await uploadFile(chunk[i]));
-            setProgress({ phase: "upload", done: start + i + 1, total: files.length });
+            setProgress({
+              phase: "upload",
+              done: start + i + 1,
+              total: pages.length,
+              detail: `${chunk[i].name} (${start + i + 1}/${pages.length})`,
+            });
           }
 
-          setProgress({ phase: "read", done: start, total: files.length });
+          setProgress({ phase: "read", done: start, total: pages.length, detail: range });
           const res = await fetch("/api/optics/read", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -514,7 +565,7 @@ export default function OpticReading() {
           );
         }
         setResults([...collected]);
-        setProgress({ phase: "read", done: start + chunk.length, total: files.length });
+        setProgress({ phase: "read", done: start + chunk.length, total: pages.length, detail: range });
       }
 
       const firstOk = collected.findIndex((r) => r.success);
@@ -527,7 +578,7 @@ export default function OpticReading() {
       toast.error("Okuma hatası", { description: msg });
     } finally {
       setIsReading(false);
-      setProgress({ phase: "upload", done: 0, total: 0 });
+      setProgress({ phase: "convert", done: 0, total: 0, detail: "" });
     }
   }, [design, files, uploadFile, toast]);
 
@@ -955,19 +1006,15 @@ export default function OpticReading() {
                 type="file"
                 accept="image/jpeg,.jpg,.jpeg,image/png,.png,application/pdf,.pdf"
                 multiple
+                disabled={isReading}
                 onChange={handleFileChange}
               />
-              {isConvertingPdf && (
-                <div className="flex items-center gap-2 text-sm text-text-tertiary py-2">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  PDF sayfaları JPEG'e dönüştürülüyor...
-                </div>
-              )}
               {files.length > 0 && (
                 <div className="max-h-24 overflow-y-auto text-xs text-text-tertiary space-y-0.5 border rounded-md p-2">
                   {files.map((f, i) => (
                     <div key={i} className="truncate">
                       {i + 1}. {f.name}
+                      {isPdfFile(f) ? " · okuma sırasında çevrilir" : ""}
                     </div>
                   ))}
                 </div>
@@ -978,9 +1025,7 @@ export default function OpticReading() {
               {isReading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {progress.total > 0
-                    ? `${progress.done}/${progress.total} ${progress.phase === "upload" ? "yükleniyor" : "okunuyor"}`
-                    : "Okunuyor..."}
+                  {PHASE_BUTTON[progress.phase]}…
                 </>
               ) : (
                 <>
@@ -989,6 +1034,46 @@ export default function OpticReading() {
                 </>
               )}
             </Button>
+
+            {isReading && (
+              <div className="space-y-2">
+                <ol className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  {READ_STAGES.map((stage) => {
+                    const currentIndex = READ_STAGES.findIndex((item) => item.phase === progress.phase);
+                    const stageIndex = READ_STAGES.indexOf(stage);
+                    const state = stageIndex < currentIndex ? "done" : stageIndex === currentIndex ? "active" : "pending";
+                    return (
+                      <li
+                        key={stage.phase}
+                        aria-current={state === "active" ? "step" : undefined}
+                        className={`flex items-center gap-1 text-caption-1-medium ${
+                          state === "active"
+                            ? "text-text-primary"
+                            : state === "done"
+                              ? "text-text-secondary"
+                              : "text-text-tertiary"
+                        }`}
+                      >
+                        {state === "done" ? (
+                          <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                        ) : state === "active" ? (
+                          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                        ) : (
+                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-separator-border" />
+                        )}
+                        {stage.label}
+                      </li>
+                    );
+                  })}
+                </ol>
+                <ProgressBar
+                  label={PHASE_TITLE[progress.phase]}
+                  value={progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0}
+                  isIndeterminate={progress.total === 0}
+                  description={progress.detail || undefined}
+                />
+              </div>
+            )}
 
             {results.length > 0 && (
               <div className="space-y-2 border rounded-lg p-3">
