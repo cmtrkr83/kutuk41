@@ -48,6 +48,13 @@ Web System Core — sınav kütük yönetimi, optik kodlama/okuma, etiket/tutana
 - DB şema push: `npm run db:push`
 - Docker: `docker compose up --build -d`
 
+## Deploy (192.168.41.119:5050)
+
+- Portainer'daki `kutuk-islemleri` stack'i (id 19, `portainer-stack.yml`) GitHub `main`'den çekip **sunucuda build eder**. Portainer 2.45 Compose deploy'unu **sabit 15 dakika** ile sınırlıyor (`api/stacks/stackbuilders/director.go`, `context.WithTimeout(..., 15*time.Minute)`); panelden değiştirilemez. Süre aşılırsa stack `failed` olur, eski konteyner çalışmaya devam eder (`failed to solve: DeadlineExceeded`).
+- Sunucu 1 çekirdek / 3,7 GB RAM ve yavaş bağlantılı. `Dockerfile` bu yüzden: tek `npm ci` + `npm prune --omit=dev` (runner'da ikinci kurulum yok), OpenCV `opencv-python-headless` (pip, Debian `python3-opencv` değil), npm/apt/pip cache mount'ları. Tipik deploy ~7-8 dk, imaj 1221 MB.
+- Cache temizlenirse (`docker builder prune`) ilk build 15 dk'yı aşabilir: cold build ~900 MB indirme demek. O durumda build'i zaman aşımısız önce ısıtmak gerekir (Portainer Docker proxy'sinden `/build?version=2`).
+- `.dockerignore` `db/*.sqlite*`, `db/*.db`, `db/optic_uploads`, `*.md` ve `.DS_Store`'u dışarıda tutar; build context ~8 MB.
+
 ## Optikle İlgili Mimari Özet
 
 - **Optik Oluşturma:** Optik formun kendisi tasarlanır (kağıt A4/A5, başlık, öğrenci bilgi alanları, ders cevap tabloları/baloncuklar). `client/src/lib/optic-form.ts` → `buildOpticFormHtml()`. Kayıtlar `db/optic-form-designs.json`.
