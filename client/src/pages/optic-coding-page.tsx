@@ -688,9 +688,9 @@ export default function OpticCoding() {
       </div>
 
       <Card className="min-w-0">
-        <CardContent className="space-y-2">
-          <div className="grid grid-cols-4 gap-3 items-center">
-            <div>
+        <CardContent className="space-y-3 p-4">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 items-start sm:items-center">
+            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 flex-1 min-w-0">
               <Select
                 id="filter-district"
                 label="İlçe"
@@ -707,8 +707,6 @@ export default function OpticCoding() {
                   <SelectItem key={d.id} id={d.id}>{d.name}</SelectItem>
                 ))}
               </Select>
-            </div>
-            <div>
               <Select
                 id="filter-school"
                 label="Okul"
@@ -726,8 +724,6 @@ export default function OpticCoding() {
                   </SelectItem>
                 ))}
               </Select>
-            </div>
-            <div>
               <Select
                 id="filter-class"
                 label="Şube"
@@ -741,10 +737,42 @@ export default function OpticCoding() {
                 ))}
               </Select>
             </div>
-            <div className="flex items-end gap-2">
-              <span className="text-caption-1-medium">Seçilen öğrenci:</span>
-              <span className="font-semibold text-text-primary">{filteredStudents.length}</span>
+            <div className="flex items-end gap-2 whitespace-nowrap flex-shrink-0">
+              <div className="flex items-center gap-1.5">
+                <Label htmlFor="filter-batch-size" className="text-caption-1-medium whitespace-nowrap shrink-0">
+                  Dilim başına öğrenci
+                </Label>
+                <Input
+                  id="filter-batch-size"
+                  aria-label="Dilim başına öğrenci sayısı"
+                  className="w-24"
+                  type="number"
+                  min={50}
+                  max={500}
+                  step={50}
+                  value={batchSizeInput}
+                  onChange={(event) => setBatchSizeInput(event.target.value)}
+                  onBlur={() => setBatchSizeInput(String(batchSize))}
+                  disabled={!!exporting}
+                />
+              </div>
+              <Button
+                onClick={printAll}
+                disabled={!selectedDesign || filteredStudents.length === 0 || !!exporting}
+                variant="ghost"
+                leadingIcon={Printer}
+              >
+                {exporting
+                  ? `Yazdırma ${exporting.done}/${exporting.total}`
+                  : filteredStudents.length
+                    ? `Yazdır ${printStart + 1}–${printEnd}/${filteredStudents.length}`
+                    : "Yazdır"}
+              </Button>
             </div>
+          </div>
+          <div className="flex justify-end items-center">
+            <span className="text-caption-1-medium">Seçilen öğrenci:</span>
+            <span className="font-semibold text-text-primary ml-1">{filteredStudents.length}</span>
           </div>
         </CardContent>
       </Card>
