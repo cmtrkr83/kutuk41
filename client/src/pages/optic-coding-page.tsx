@@ -692,6 +692,20 @@ export default function OpticCoding() {
           <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 items-start sm:items-center">
             <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 flex-1 min-w-0">
               <Select
+                id="filter-form"
+                label="Optik Form"
+                size="sm"
+                selectedKey={selectedFormId || undefined}
+                placeholder="Seçin…"
+                onSelectionChange={(key) => handleSelectForm(String(key))}
+              >
+                {formDesigns.map((d) => (
+                  <SelectItem key={d.id} id={d.id}>
+                    {d.name} ({d.paperSize})
+                  </SelectItem>
+                ))}
+              </Select>
+              <Select
                 id="filter-district"
                 label="İlçe"
                 size="sm"
@@ -789,37 +803,6 @@ export default function OpticCoding() {
         <div className="grid grid-cols-[300px_1fr_260px] gap-4 items-start">
           {/* LEFT: Form seçimi + sütunlar + filtreler */}
           <div className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Optik Form</CardTitle>
-                <CardDescription>Doldurulacak form tasarımını seçin.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="space-y-1.5">
-                  <Select
-                    label="Form"
-                    placeholder="Seçin…"
-                    selectedKey={selectedFormId || undefined}
-                    onSelectionChange={(key) => handleSelectForm(String(key))}
-                  >
-                    {formDesigns.map((d) => (
-                      <SelectItem key={d.id} id={d.id}>
-                        {d.name} ({d.paperSize})
-                      </SelectItem>
-                    ))}
-                  </Select>
-                </div>
-                {selectedDesign && (
-                  <div className="rounded-md bg-background-secondary-default p-3 text-sm">
-                    {selectedDesign.name} · {selectedDesign.paperSize}
-                    <div className="text-xs text-text-tertiary mt-1">
-                      {selectedDesign.fields.length} bilgi alanı · {selectedDesign.grids.length} cevap tablosu
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
             {selectedDesign && (
               <Card>
                 <CardHeader className="space-y-1.5 pb-3">
