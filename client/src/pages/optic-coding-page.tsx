@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRegistry, type Student } from "@/context/RegistryContext";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Chip } from "@/components/base/badges/chip";
 import { Button } from "@/components/base/buttons/button";
 import { InputBase as Input } from "@/components/base/input/input";
 import { Label } from "@/components/base/input/label";
@@ -28,7 +29,7 @@ import {
   resolveColumnValue,
   snapToGrid,
 } from "@/lib/optic-coding";
-import { AlertCircle, GripVertical, Plus, Printer, QrCode, Save, Sparkles, Trash2 } from "lucide-react";
+import { AlertCircle, GripVertical, Plus, Printer, QrCode, Save, Trash2 } from "lucide-react";
 
 const DRAG_SNAP_MM = 1;
 /** Alan listesinde "bağlı değil" seçeneğinin anahtarı (boş RAC anahtarı olamaz). */
@@ -72,7 +73,7 @@ export default function OpticCoding() {
   const [exporting, setExporting] = useState<{ done: number; total: number } | null>(null);
   const lastProgressUpdate = useRef(0);
   const [savingProfile, setSavingProfile] = useState(false);
-  const [qrSelectedColumn, setQrSelectedColumn] = useState<string>("__none");
+  const [qrSelectedColumn, setQrSelectedColumn] = useState<string>("");
 
   const [previewScale, setPreviewScale] = useState(1);
   const previewRef = useRef<HTMLDivElement | null>(null);
@@ -386,98 +387,6 @@ export default function OpticCoding() {
     if (selectedElementId === id) setSelectedElementId(null);
   };
 
-  const handleAutoBind = () => {
-    if (!selectedDesign) {
-      toast.error("Form seçilmedi", { description: "Önce bir optik form tasarımı seçin." });
-      return;
-    }
-    if (availableColumns.length === 0) {
-      toast.error("Kütük sütunu bulunamadı", { description: "Kütük verisinde sütun bulunmuyor." });
-      return;
-    }
-
-    const normalize = (s: string) =>
-      s
-        .toLowerCase()
-        .replace(/ğ/g, "g")
-        .replace(/ü/g, "u")
-        .replace(/ş/g, "s")
-        .replace(/ı/g, "i")
-        .replace(/ö/g, "o")
-        .replace(/ç/g, "c")
-        .replace(/[^a-z0-9]/g, "");
-
-    const newElements: CodingElement[] = [...elements];
-    let matchedCount = 0;
-
-    for (const field of selectedDesign.fields) {
-      if (isHeadingField(field)) continue;
-      if (newElements.some((el) => el.boundFieldId === field.id)) continue;
-
-      const normField = normalize(field.label);
-
-      const matchedCol = availableColumns.find((col) => {
-        const normCol = normalize(col.label);
-        if (normField === normCol) return true;
-        if (normField.includes("tc") || normField.includes("kimlik")) {
-          return normCol.includes("tc") || normCol.includes("kimlik") || col.key === "studentNo";
-        }
-        if (normField.includes("ad") && (normField.includes("soyad") || normField.includes("ogrenci"))) {
-          return (normCol.includes("ad") && normCol.includes("soyad")) || col.key === "fullName";
-        }
-        if (normField.includes("okul") || normField.includes("kurum")) {
-          return normCol.includes("okul") || normCol.includes("kurum") || col.key === "schoolName";
-        }
-        if (normField.includes("sinif") || normField.includes("sube")) {
-          return normCol.includes("sinif") || normCol.includes("sube") || col.key === "class";
-        }
-        if (normField.includes("numara") || normField.includes("no")) {
-          return normCol.includes("numara") || normCol.includes("no") || col.key === "schoolNo";
-        }
-        return false;
-      });
-
-      if (matchedCol && !newElements.some((el) => el.columnKey === matchedCol.key && el.kind === "text")) {
-        newElements.push({
-          id: generateCodingId(),
-          columnKey: matchedCol.key,
-          label: matchedCol.label,
-          xMm: field.xMm ?? 10,
-          yMm: field.yMm ?? 10,
-          kind: "text",
-          boundFieldId: field.id,
-        });
-        matchedCount++;
-      }
-    }
-
-    if (!newElements.some((el) => el.kind === "qr")) {
-      const tcCol = availableColumns.find(
-        (c) => normalize(c.label).includes("tc") || normalize(c.label).includes("kimlik") || c.key === "studentNo",
-      );
-      if (tcCol) {
-        newElements.push({
-          id: generateCodingId(),
-          columnKey: tcCol.key,
-          label: `QR (${tcCol.label})`,
-          xMm: paper.widthMm - QR_DEFAULT_SIZE_MM - 12,
-          yMm: 12,
-          kind: "qr",
-          qrSizeMm: QR_DEFAULT_SIZE_MM,
-        });
-        matchedCount++;
-      }
-    }
-
-    if (matchedCount > 0) {
-      setElements(newElements);
-      toast.success("Akıllı eşleştirme tamamlandı", {
-        description: `${matchedCount} alan form ile otomatik bağlandı.`,
-      });
-    } else {
-      toast.info("Tüm alanlar zaten eşleşmiş durumda.");
-    }
-  };
 
   const onOverlayPointerDown = (e: React.PointerEvent, el: CodingElement) => {
     if (e.button !== 0) return;
@@ -644,149 +553,109 @@ export default function OpticCoding() {
 
   return (
     <div className="space-y-6 animate-in slide-in-from-right-4 duration-500">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-title-1-semibold text-text-primary">Optik Kodlama</h1>
+          <h1 className="text-title-1-semibold tracking-tight text-text-primary">Optik Kodlama</h1>
           <p className="mt-1 text-body-regular text-text-secondary">Excel sütunlarını seçip optik form üzerine yerleştirin.</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            onClick={saveCodingProfile}
-            disabled={!selectedDesign || !selectedExamId || savingProfile || !!exporting}
-            variant="ghost"
-            leadingIcon={Save}
-          >
-            {savingProfile ? "Kaydediliyor..." : "Yerleşimi Kaydet"}
-          </Button>
-          <div className="flex items-center gap-2 whitespace-nowrap">
-            <Label htmlFor="export-batch-size" className="shrink-0 whitespace-nowrap">
-              Dilim başına öğrenci
-            </Label>
-            <Input
-              id="export-batch-size"
-              aria-label="Dilim başına öğrenci sayısı"
-              className="w-20"
-              type="number"
-              min={50}
-              max={500}
-              step={50}
-              value={batchSizeInput}
-              onChange={(event) => setBatchSizeInput(event.target.value)}
-              onBlur={() => setBatchSizeInput(String(batchSize))}
-              disabled={!!exporting}
-            />
-          </div>
-          <Button onClick={printAll} disabled={!selectedDesign || filteredStudents.length === 0 || !!exporting} variant="ghost" leadingIcon={Printer}>
-            
-            {exporting
-              ? `Yazdırma ${exporting.done}/${exporting.total}`
-              : filteredStudents.length
-                ? `Yazdır ${printStart + 1}–${printEnd}/${filteredStudents.length}`
-                : "Yazdır"}
-          </Button>
-        </div>
+        <Button
+          onClick={saveCodingProfile}
+          disabled={!selectedDesign || !selectedExamId || savingProfile || !!exporting}
+          variant="ghost"
+          leadingIcon={Save}
+        >
+          {savingProfile ? "Kaydediliyor..." : "Yerleşimi Kaydet"}
+        </Button>
       </div>
 
-      <Card className="min-w-0">
-        <CardContent className="space-y-3 p-4">
-          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 items-start sm:items-center">
-            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 flex-1 min-w-0">
-              <Select
-                id="filter-form"
-                label="Optik Form"
-                size="sm"
-                selectedKey={selectedFormId || undefined}
-                placeholder="Seçin…"
-                onSelectionChange={(key) => handleSelectForm(String(key))}
-              >
-                {formDesigns.map((d) => (
-                  <SelectItem key={d.id} id={d.id}>
-                    {d.name} ({d.paperSize})
-                  </SelectItem>
-                ))}
-              </Select>
-              <Select
-                id="filter-district"
-                label="İlçe"
-                size="sm"
-                selectedKey={districtId}
-                onSelectionChange={(key) => {
-                  setDistrictId(String(key));
-                  setSchoolId("all");
-                  setClassName("all");
-                }}
-              >
-                <SelectItem id="all">Tümü</SelectItem>
-                {districts.map((d) => (
-                  <SelectItem key={d.id} id={d.id}>{d.name}</SelectItem>
-                ))}
-              </Select>
-              <Select
-                id="filter-school"
-                label="Okul"
-                size="sm"
-                selectedKey={schoolId}
-                onSelectionChange={(key) => {
-                  setSchoolId(String(key));
-                  setClassName("all");
-                }}
-              >
-                <SelectItem id="all">Tümü</SelectItem>
-                {visibleSchools.map((s) => (
-                  <SelectItem key={s.id} id={s.id}>
-                    {s.code} - {s.name}
-                  </SelectItem>
-                ))}
-              </Select>
-              <Select
-                id="filter-class"
-                label="Şube"
-                size="sm"
-                selectedKey={className}
-                onSelectionChange={(key) => setClassName(String(key))}
-              >
-                <SelectItem id="all">Tümü</SelectItem>
-                {classOptions.map((item) => (
-                  <SelectItem key={item} id={item}>{item}</SelectItem>
-                ))}
-              </Select>
-            </div>
-            <div className="flex items-end gap-2 whitespace-nowrap flex-shrink-0">
-              <div className="flex items-center gap-1.5">
-                <Label htmlFor="filter-batch-size" className="text-caption-1-medium whitespace-nowrap shrink-0">
-                  Dilim başına öğrenci
-                </Label>
-                <Input
-                  id="filter-batch-size"
-                  aria-label="Dilim başına öğrenci sayısı"
-                  className="w-24"
-                  type="number"
-                  min={50}
-                  max={500}
-                  step={50}
-                  value={batchSizeInput}
-                  onChange={(event) => setBatchSizeInput(event.target.value)}
-                  onBlur={() => setBatchSizeInput(String(batchSize))}
-                  disabled={!!exporting}
-                />
-              </div>
-              <Button
-                onClick={printAll}
-                disabled={!selectedDesign || filteredStudents.length === 0 || !!exporting}
-                variant="ghost"
-                leadingIcon={Printer}
-              >
-                {exporting
-                  ? `Yazdırma ${exporting.done}/${exporting.total}`
-                  : filteredStudents.length
-                    ? `Yazdır ${printStart + 1}–${printEnd}/${filteredStudents.length}`
-                    : "Yazdır"}
-              </Button>
-            </div>
+      <Card className="min-w-0 overflow-hidden">
+        <CardHeader className="flex flex-col gap-3 border-b border-separator-border/60 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <CardTitle className="text-base">Form ve Öğrenci Seçimi</CardTitle>
+          <Chip variant="subtle" color="blue" className="w-fit rounded-full">
+            {filteredStudents.length.toLocaleString("tr-TR")} öğrenci
+          </Chip>
+        </CardHeader>
+        <CardContent className="space-y-4 p-4">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <Select
+              label="Optik Form"
+              selectedKey={selectedFormId || undefined}
+              placeholder="Form seçin"
+              onSelectionChange={(key) => handleSelectForm(String(key))}
+            >
+              {formDesigns.map((d) => (
+                <SelectItem key={d.id} id={d.id}>
+                  {d.name} ({d.paperSize})
+                </SelectItem>
+              ))}
+            </Select>
+            <Select
+              label="İlçe"
+              selectedKey={districtId}
+              onSelectionChange={(key) => {
+                setDistrictId(String(key));
+                setSchoolId("all");
+                setClassName("all");
+              }}
+            >
+              <SelectItem id="all">Tüm İlçeler</SelectItem>
+              {districts.map((d) => (
+                <SelectItem key={d.id} id={d.id}>{d.name}</SelectItem>
+              ))}
+            </Select>
+            <Select
+              label="Okul"
+              selectedKey={schoolId}
+              onSelectionChange={(key) => {
+                setSchoolId(String(key));
+                setClassName("all");
+              }}
+            >
+              <SelectItem id="all">Tüm Okullar</SelectItem>
+              {visibleSchools.map((s) => (
+                <SelectItem key={s.id} id={s.id}>
+                  {s.code} - {s.name}
+                </SelectItem>
+              ))}
+            </Select>
+            <Select
+              label="Şube"
+              selectedKey={className}
+              onSelectionChange={(key) => setClassName(String(key))}
+            >
+              <SelectItem id="all">Tüm Şubeler</SelectItem>
+              {classOptions.map((item) => (
+                <SelectItem key={item} id={item}>{item}</SelectItem>
+              ))}
+            </Select>
           </div>
-          <div className="flex justify-end items-center">
-            <span className="text-caption-1-medium">Seçilen öğrenci:</span>
-            <span className="font-semibold text-text-primary ml-1">{filteredStudents.length}</span>
+          <div className="flex flex-col gap-3 border-t border-separator-border/60 pt-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="flex w-full flex-col gap-1 sm:max-w-44">
+              <Label htmlFor="export-batch-size">Dilim başına öğrenci</Label>
+              <Input
+                id="export-batch-size"
+                type="number"
+                min={50}
+                max={500}
+                step={50}
+                value={batchSizeInput}
+                onChange={(event) => setBatchSizeInput(event.target.value)}
+                onBlur={() => setBatchSizeInput(String(batchSize))}
+                disabled={!!exporting}
+              />
+            </div>
+            <Button
+              onClick={printAll}
+              disabled={!selectedDesign || filteredStudents.length === 0 || !!exporting}
+              variant="ghost"
+              leadingIcon={Printer}
+            >
+              {exporting
+                ? `Yazdırma ${exporting.done}/${exporting.total}`
+                : filteredStudents.length
+                  ? `Yazdır ${printStart + 1}–${printEnd}/${filteredStudents.length}`
+                  : "Yazdır"}
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -804,23 +673,11 @@ export default function OpticCoding() {
           {/* LEFT: Form seçimi + sütunlar + filtreler */}
           <div className="space-y-4">
             {selectedDesign && (
-              <Card>
-                <CardHeader className="space-y-1.5 pb-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <CardTitle className="text-base">Excel Sütunları</CardTitle>
-                    <Button
-                      size="small"
-                      variant="secondary"
-                      onClick={handleAutoBind}
-                      leadingIcon={Sparkles}
-                      title="Formdaki kutularla Excel sütunlarını otomatik eşleştirir"
-                    >
-                      Akıllı Eşleştir
-                    </Button>
-                  </div>
-                  <CardDescription>Bir sütunu sürükleyip forma bırakın veya otomatik eşleştirin.</CardDescription>
+              <Card className="overflow-hidden rounded-2xl border-separator-border/70 shadow-sm">
+                <CardHeader className="gap-2 border-b border-separator-border/60 bg-background-secondary-default/10 p-4">
+                  <CardTitle className="text-base">Excel Sütunları</CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-1" style={{ maxHeight: 360, overflowY: "auto" }}>
+                <CardContent className="space-y-1 p-4" style={{ maxHeight: 360, overflowY: "auto" }}>
                   {availableColumns.length === 0 && <p className="text-sm text-text-tertiary">Yüklenen veride sütun yok.</p>}
                   {availableColumns.map((col) => {
                     const isMapped = elements.some((el) => el.columnKey === col.key);
@@ -839,25 +696,27 @@ export default function OpticCoding() {
                           <span className={`text-sm truncate ${isMapped ? "text-text-tertiary" : ""}`}>{col.label}</span>
                         </div>
                         {isMapped ? (
-                          <span className="shrink-0 rounded bg-state-success-base px-1.5 py-0.5 text-[10px] font-semibold text-state-success-text">Eşlendi</span>
+                          <Chip variant="caption" color="lime" className="shrink-0">Eşlendi</Chip>
                         ) : (
                           <div className="ml-1 flex shrink-0 items-center gap-1">
-                            <button
-                              type="button"
+                            <Button
+                              size="xs"
+                              variant="secondary"
+                              iconOnly
+                              leadingIcon={QrCode}
                               title="QR olarak ekle"
+                              aria-label={`${col.label} sütununu QR olarak ekle`}
                               onClick={() => addElement(col, undefined, "qr")}
-                              className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-separator-border text-text-tertiary opacity-60 hover:opacity-100 hover:bg-accent-600 hover:text-white transition-opacity"
-                            >
-                              <QrCode className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              type="button"
+                            />
+                            <Button
+                              size="xs"
+                              variant="secondary"
+                              iconOnly
+                              leadingIcon={Plus}
                               title="Forma ekle"
+                              aria-label={`${col.label} sütununu forma ekle`}
                               onClick={() => addElement(col)}
-                              className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-separator-border text-text-tertiary opacity-60 hover:opacity-100 hover:bg-accent-600 hover:text-white transition-opacity"
-                            >
-                              <Plus className="h-3.5 w-3.5" />
-                            </button>
+                            />
                           </div>
                         )}
                       </div>
@@ -869,31 +728,23 @@ export default function OpticCoding() {
 
             {/* QR Oluşturma Kartı */}
             {selectedDesign && availableColumns.length > 0 && (
-              <Card>
-                <CardHeader className="space-y-1.5 pb-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <CardTitle className="text-base">QR Oluşturma</CardTitle>
-                  </div>
-                  <CardDescription>
-                    Aşağıdan bir sütun seçip QR kod olarak forma ekleyin. Aynı sütun hem sayısal alan hem de QR olarak eklenebilir (örn. TC).
-                  </CardDescription>
+              <Card className="overflow-hidden rounded-2xl border-separator-border/70 shadow-sm">
+                <CardHeader className="gap-2 border-b border-separator-border/60 bg-background-secondary-default/10 p-4">
+                  <CardTitle className="text-base">QR Oluşturma</CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-2">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="qr-column-select" className="text-caption-1-medium">Sütun Seçin</Label>
-                    <Select
-                      id="qr-column-select"
-                      selectedKey={qrSelectedColumn || undefined}
-                      onSelectionChange={(key) => setQrSelectedColumn(String(key))}
-                    >
-                      <SelectItem id="__none">— Sütun seçin —</SelectItem>
-                      {qrEligibleColumns.map((col) => (
-                        <SelectItem key={col.key} id={col.key}>
-                          {col.label}
-                        </SelectItem>
-                      ))}
-                    </Select>
-                  </div>
+                <CardContent className="space-y-3 p-4">
+                  <Select
+                    label="Sütun Seçin"
+                    selectedKey={qrSelectedColumn || undefined}
+                    placeholder="Sütun seçin"
+                    onSelectionChange={(key) => setQrSelectedColumn(String(key))}
+                  >
+                    {qrEligibleColumns.map((col) => (
+                      <SelectItem key={col.key} id={col.key}>
+                        {col.label}
+                      </SelectItem>
+                    ))}
+                  </Select>
                   <div className="flex gap-2">
                     <Button
                       size="small"
@@ -904,7 +755,7 @@ export default function OpticCoding() {
                         const col = availableColumns.find((c) => c.key === qrSelectedColumn);
                         if (!col) return;
                         addElement(col, undefined, "qr");
-                        setQrSelectedColumn("__none");
+                        setQrSelectedColumn("");
                       }}
                       leadingIcon={QrCode}
                     >
@@ -914,7 +765,7 @@ export default function OpticCoding() {
                   <div className="space-y-1">
                     <Label className="text-caption-1-medium">Oluşturulan QR'lar</Label>
                     {qrElements.length === 0 ? (
-                      <p className="text-xs text-text-tertiary">Henüz QR eklenmemiş.</p>
+                      <p className="text-caption-1-regular text-text-tertiary">Henüz QR eklenmemiş.</p>
                     ) : (
                       <div className="space-y-1">
                         {qrElements.map((el) => (
@@ -939,12 +790,11 @@ export default function OpticCoding() {
           </div>
 
           {/* CENTER: Önizleme */}
-          <Card className="min-w-0">
-            <CardHeader className="pb-3">
+          <Card className="min-w-0 overflow-hidden rounded-2xl border-separator-border/70 shadow-sm">
+            <CardHeader className="gap-2 border-b border-separator-border/60 bg-background-secondary-default/10 p-4">
               <CardTitle className="text-base">Önizleme</CardTitle>
-              <CardDescription>Forma bırakın, sürükleyerek konumlandırın.</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-4">
               <div ref={previewAreaRef} className="overflow-hidden rounded-lg border bg-background-secondary-default/30 p-4">
                 <div className="relative mx-auto" style={{ width: previewWidthPx * previewScale, height: previewHeightPx * previewScale }}>
                   {previewHtml ? (
@@ -1020,7 +870,7 @@ export default function OpticCoding() {
                 </div>
               </div>
               {filteredStudents[0] && (
-                <p className="text-xs text-text-tertiary mt-2">
+                <p className="text-caption-1-regular text-text-tertiary mt-2">
                   Önizleme öğrencisi: <strong>{filteredStudents[0].fullName}</strong>
                 </p>
               )}
@@ -1028,12 +878,11 @@ export default function OpticCoding() {
           </Card>
 
           {/* RIGHT: Yerleştirilenler */}
-          <Card>
-            <CardHeader>
+          <Card className="overflow-hidden rounded-2xl border-separator-border/70 shadow-sm">
+            <CardHeader className="gap-2 border-b border-separator-border/60 bg-background-secondary-default/10 p-4">
               <CardTitle className="text-base">Yerleştirilenler</CardTitle>
-              <CardDescription>Eklenen öğeler ve bağlama.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-3 p-4">
               {elements.length === 0 && (
                 <p className="text-sm text-text-tertiary">Henüz öğe yok. Soldaki sütunlardan ekleyin.</p>
               )}
@@ -1048,7 +897,7 @@ export default function OpticCoding() {
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0">
                         <div className="text-sm font-medium truncate">{el.label}</div>
-                        <div className="text-[11px] text-text-tertiary">
+                        <div className="text-caption-1-regular text-text-tertiary">
                           {Math.round(el.xMm)}mm, {Math.round(el.yMm)}mm
                           {el.kind === "qr" ? " · QR" : el.boundFieldId ? " · bağlı" : " · serbest"}
                         </div>
@@ -1131,7 +980,7 @@ export default function OpticCoding() {
                       })
                     }
                   />
-                  <p className="text-[11px] text-text-tertiary">Sayfada sürükleyip köşe tutamacından da boyutlandırabilirsiniz.</p>
+                  <p className="text-caption-1-regular text-text-tertiary">Sayfada sürükleyip köşe tutamacından da boyutlandırabilirsiniz.</p>
                 </div>
               )}
             </CardContent>
