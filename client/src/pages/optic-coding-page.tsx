@@ -72,6 +72,7 @@ export default function OpticCoding() {
   const [exporting, setExporting] = useState<{ done: number; total: number } | null>(null);
   const lastProgressUpdate = useRef(0);
   const [savingProfile, setSavingProfile] = useState(false);
+  const [qrSelectedColumn, setQrSelectedColumn] = useState<string>("__none");
 
   const [previewScale, setPreviewScale] = useState(1);
   const previewRef = useRef<HTMLDivElement | null>(null);
@@ -204,6 +205,11 @@ export default function OpticCoding() {
     () => excelColumns.map((key) => ({ key, label: key })),
     [excelColumns],
   );
+  const qrElements = useMemo(() => elements.filter((el) => el.kind === "qr"), [elements]);
+  const qrEligibleColumns = useMemo(
+    () => availableColumns.filter((col) => !qrElements.some((el) => el.columnKey === col.key)),
+    [availableColumns, qrElements],
+  );
 
   const visibleSchools = useMemo(() => {
     if (districtId === "all") return schools;
@@ -286,7 +292,15 @@ export default function OpticCoding() {
         const value = resolveColumnValue(student, school, district, el.columnKey);
         if (el.kind === "qr") {
           const qrSizeMm = el.qrSizeMm ?? QR_DEFAULT_SIZE_MM;
-          const qrDataUrl = value ? await buildQrDataUrl(value, QR_RENDER_PX) : undefined;
+          let qrDataUrl: string | undefined;
+          if (value) {
+            try {
+              qrDataUrl = await buildQrDataUrl(value, QR_RENDER_PX);
+            } catch (err) {
+              console.error(`QR oluşturulamadı (${el.label}):`, err);
+              qrDataUrl = undefined;
+            }
+          }
           out.push({ id: el.id, label: el.label, kind: "qr", xMm: el.xMm, yMm: el.yMm, value, qrSizeMm, qrDataUrl });
         } else {
           out.push({ id: el.id, label: el.label, kind: "text", xMm: el.xMm, yMm: el.yMm, value, fontSizeMm: el.fontSizeMm, letterSpacingMm: el.letterSpacingMm });
@@ -343,7 +357,7 @@ export default function OpticCoding() {
   const selectedElement = elements.find((el) => el.id === selectedElementId) || null;
 
   const addElement = (col: { key: string; label: string }, pos?: { xMm: number; yMm: number }, kind: "text" | "qr" = "text") => {
-    if (elements.some((el) => el.columnKey === col.key)) return;
+    if (elements.some((el) => el.columnKey === col.key && el.kind === kind)) return;
     const paperSize = selectedDesign ? PAPER_DIMENSIONS[selectedDesign.paperSize] : PAPER_DIMENSIONS.A4;
     const baseX = pos?.xMm ?? 10;
     const baseY = pos?.yMm ?? 10 + (elements.length % 10) * 9;
@@ -423,7 +437,7 @@ export default function OpticCoding() {
         return false;
       });
 
-      if (matchedCol && !newElements.some((el) => el.columnKey === matchedCol.key)) {
+      if (matchedCol && !newElements.some((el) => el.columnKey === matchedCol.key && el.kind === "text")) {
         newElements.push({
           id: generateCodingId(),
           columnKey: matchedCol.key,
@@ -776,6 +790,76 @@ export default function OpticCoding() {
                       </div>
                     );
                   })}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* QR Oluşturma Kartı */}
+            {selectedDesign && availableColumns.length > 0 && (
+              <Card>
+                <CardHeader className="space-y-1.5 pb-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <CardTitle className="text-base">QR Oluşturma</CardTitle>
+                  </div>
+                  <CardDescription>
+                    Aşağıdan bir sütun seçip QR kod olarak forma ekleyin. Aynı sütun hem sayısal alan hem de QR olarak eklenebilir (örn. TC).
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="qr-column-select" className="text-caption-1-medium">Sütun Seçin</Label>
+                    <Select
+                      id="qr-column-select"
+                      selectedKey={qrSelectedColumn || undefined}
+                      onSelectionChange={(key) => setQrSelectedColumn(String(key))}
+                    >
+                      <SelectItem id="__none">— Sütun seçin —</SelectItem>
+                      {qrEligibleColumns.map((col) => (
+                        <SelectItem key={col.key} id={col.key}>
+                          {col.label}
+                        </SelectItem>
+                      ))}
+                    </Select>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="small"
+                      variant="ghost"
+                      disabled={!qrSelectedColumn}
+                      onClick={() => {
+                        if (!qrSelectedColumn) return;
+                        const col = availableColumns.find((c) => c.key === qrSelectedColumn);
+                        if (!col) return;
+                        addElement(col, undefined, "qr");
+                        setQrSelectedColumn("__none");
+                      }}
+                      leadingIcon={QrCode}
+                    >
+                      QR Olarak Ekle
+                    </Button>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-caption-1-medium">Oluşturulan QR'lar</Label>
+                    {qrElements.length === 0 ? (
+                      <p className="text-xs text-text-tertiary">Henüz QR eklenmemiş.</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {qrElements.map((el) => (
+                          <div key={el.id} className="flex items-center justify-between rounded bg-background-secondary-default/50 px-2 py-1.5 text-sm">
+                            <span className="truncate max-w-[200px]">{el.label}</span>
+                            <Button
+                              size="small"
+                              variant="secondary"
+                              iconOnly
+                              onClick={() => removeElement(el.id)}
+                              aria-label="QR'yi kaldır"
+                              leadingIcon={Trash2}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             )}
