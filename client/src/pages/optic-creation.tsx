@@ -581,7 +581,7 @@ export default function OpticCreate() {
                           id={`genislik-baslik-${field.id}`}
                           type="number"
                           min={10}
-                          max={200}
+                          max={paper.widthMm}
                           step={0.5}
                           size="small"
                           className="optic-form-number-input"
@@ -592,7 +592,7 @@ export default function OpticCreate() {
                             updateField(field.id, { autoWidth: false });
                             updateDimensionDraft(field.id, "widthMm", e.target.value);
                           }}
-                          onBlur={() => commitDimensionDraft(field.id, "widthMm", 10, 200)}
+                          onBlur={() => commitDimensionDraft(field.id, "widthMm", 10, paper.widthMm)}
                         />
                       </div>
                       <div>
@@ -620,13 +620,13 @@ export default function OpticCreate() {
                           id={`genislik-mm-${field.id}`}
                           type="number"
                           min={10}
-                          max={200}
+                          max={paper.widthMm}
                           step={0.5}
                           size="small"
                           className="optic-form-number-input"
                           value={dimensionDrafts[`${field.id}:widthMm`] ?? field.widthMm}
                           onChange={(e) => updateDimensionDraft(field.id, "widthMm", e.target.value)}
-                          onBlur={() => commitDimensionDraft(field.id, "widthMm", 10, 200)}
+                          onBlur={() => commitDimensionDraft(field.id, "widthMm", 10, paper.widthMm)}
                         />
                       </div>
                       <div className="min-w-0">
@@ -635,13 +635,13 @@ export default function OpticCreate() {
                           id={`yukseklik-mm-${field.id}`}
                           type="number"
                           min={3}
-                          max={100}
+                          max={paper.heightMm}
                           step={0.5}
                           size="small"
                           className="optic-form-number-input"
                           value={dimensionDrafts[`${field.id}:heightMm`] ?? field.heightMm ?? 14}
                           onChange={(e) => updateDimensionDraft(field.id, "heightMm", e.target.value)}
-                          onBlur={() => commitDimensionDraft(field.id, "heightMm", 3, 100)}
+                          onBlur={() => commitDimensionDraft(field.id, "heightMm", 3, paper.heightMm)}
                         />
                       </div>
                     </div>
