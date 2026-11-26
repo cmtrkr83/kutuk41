@@ -32,7 +32,7 @@ import {
   type FormTextField,
   type OpticFormDesign,
 } from "@/lib/optic-form";
-import { createPdfFromPages, mmToPx, openPrintWindow, PX_PER_MM, snapToGrid } from "@/lib/optic-coding";
+import { createPdfFromPages, mmCssToPx, mmToPx, openPrintWindow, PX_PER_MM, snapToGrid } from "@/lib/optic-coding";
 import { FileDown, Move, Plus, Printer, Save, Trash2 } from "lucide-react";
 
 const DRAG_SNAP_MM = 1;
@@ -304,14 +304,19 @@ export default function OpticCreate() {
   const exportPdf = async () => {
     if (!form) return;
     try {
+      // PDF export'ta html2canvas'ın CSS mm birimini yorumlamasını engellemek için
+      // tüm mm değerlerini 300 DPI'de px'e dönüştürüp scale:1 ile render ederiz.
+      // Bu sayfam doğrudan yazdırma ile birebir aynı konumlandırma elde edilir.
+      const pdfHtml = mmCssToPx(previewHtml, PDF_RENDER_DPI);
       const blob = await createPdfFromPages({
-        pages: [previewHtml],
-        widthPx: previewWidthPx,
-        heightPx: previewHeightPx,
+        pages: [pdfHtml],
+        widthPx: Math.round(paper.widthMm * (PDF_RENDER_DPI / 25.4)),
+        heightPx: Math.round(paper.heightMm * (PDF_RENDER_DPI / 25.4)),
         widthMm: paper.widthMm,
         heightMm: paper.heightMm,
         paperSize: form.paperSize,
         renderDpi: PDF_RENDER_DPI,
+        canvasScale: 1,
       });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");

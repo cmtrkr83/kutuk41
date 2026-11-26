@@ -93,6 +93,17 @@ export function escapeHtml(value: string): string {
     .replaceAll('"', "&quot;");
 }
 
+/**
+ * HTML style özniteliğindeki CSS mm değerlerini verilen DPI'de px'e dönüştürür.
+ * html2canvas'ın mm (fiziksel birim) yorumunu atlar; PDF export'ta kesin konum için kullanılır.
+ */
+export function mmCssToPx(html: string, dpi: number): string {
+  return html.replace(/(\d+(?:\.\d+)?)mm/g, (_, val) => {
+    const px = Math.round(Number(val) * (dpi / 25.4));
+    return `${px}px`;
+  });
+}
+
 export interface PdfPageRenderOptions {
   pages?: string[];
   totalPages?: number;
@@ -103,6 +114,7 @@ export interface PdfPageRenderOptions {
   heightMm: number;
   paperSize: PaperSize;
   renderDpi?: number;
+  canvasScale?: number;
   onProgress?: (completed: number, total: number) => void;
 }
 
@@ -116,6 +128,7 @@ export async function createPdfFromPages(options: PdfPageRenderOptions): Promise
   }
 
   const dpi = options.renderDpi ?? 300;
+  const canvasScale = options.canvasScale ?? dpi / 96;
   const pageWidthPt = mmToPt(options.widthMm);
   const pageHeightPt = mmToPt(options.heightMm);
   const pdfDoc = await PDFDocument.create();
@@ -148,7 +161,7 @@ export async function createPdfFromPages(options: PdfPageRenderOptions): Promise
       );
 
       const renderedCanvas = await html2canvas(pageEl, {
-        scale: dpi / 96,
+        scale: canvasScale,
         useCORS: true,
         logging: false,
         width: options.widthPx,
