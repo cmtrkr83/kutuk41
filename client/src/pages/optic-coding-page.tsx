@@ -687,6 +687,68 @@ export default function OpticCoding() {
         </div>
       </div>
 
+      <Card className="min-w-0">
+        <CardContent className="space-y-2">
+          <div className="grid grid-cols-4 gap-3 items-center">
+            <div>
+              <Select
+                id="filter-district"
+                label="İlçe"
+                size="sm"
+                selectedKey={districtId}
+                onSelectionChange={(key) => {
+                  setDistrictId(String(key));
+                  setSchoolId("all");
+                  setClassName("all");
+                }}
+              >
+                <SelectItem id="all">Tümü</SelectItem>
+                {districts.map((d) => (
+                  <SelectItem key={d.id} id={d.id}>{d.name}</SelectItem>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <Select
+                id="filter-school"
+                label="Okul"
+                size="sm"
+                selectedKey={schoolId}
+                onSelectionChange={(key) => {
+                  setSchoolId(String(key));
+                  setClassName("all");
+                }}
+              >
+                <SelectItem id="all">Tümü</SelectItem>
+                {visibleSchools.map((s) => (
+                  <SelectItem key={s.id} id={s.id}>
+                    {s.code} - {s.name}
+                  </SelectItem>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <Select
+                id="filter-class"
+                label="Şube"
+                size="sm"
+                selectedKey={className}
+                onSelectionChange={(key) => setClassName(String(key))}
+              >
+                <SelectItem id="all">Tümü</SelectItem>
+                {classOptions.map((item) => (
+                  <SelectItem key={item} id={item}>{item}</SelectItem>
+                ))}
+              </Select>
+            </div>
+            <div className="flex items-end gap-2">
+              <span className="text-caption-1-medium">Seçilen öğrenci:</span>
+              <span className="font-semibold text-text-primary">{filteredStudents.length}</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {!isLoaded ? (
         <Card>
           <CardContent className="py-12 flex flex-col items-center justify-center text-center">
@@ -863,67 +925,6 @@ export default function OpticCoding() {
                 </CardContent>
               </Card>
             )}
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Filtreler</CardTitle>
-                <CardDescription>Yazdırılacak öğrenci aralığı.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="space-y-1.5">
-                  <Select
-                    label="İlçe"
-                    selectedKey={districtId}
-                    onSelectionChange={(key) => {
-                      setDistrictId(String(key));
-                      setSchoolId("all");
-                      setClassName("all");
-                    }}
-                  >
-                    <SelectItem id="all">Tümü</SelectItem>
-                    {districts.map((d) => (
-                      <SelectItem key={d.id} id={d.id}>
-                        {d.name}
-                      </SelectItem>
-                    ))}
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Select
-                    label="Okul"
-                    selectedKey={schoolId}
-                    onSelectionChange={(key) => {
-                      setSchoolId(String(key));
-                      setClassName("all");
-                    }}
-                  >
-                    <SelectItem id="all">Tümü</SelectItem>
-                    {visibleSchools.map((s) => (
-                      <SelectItem key={s.id} id={s.id}>
-                        {s.code} - {s.name}
-                      </SelectItem>
-                    ))}
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Select
-                    label="Şube"
-                    selectedKey={className}
-                    onSelectionChange={(key) => setClassName(String(key))}
-                  >
-                    <SelectItem id="all">Tümü</SelectItem>
-                    {classOptions.map((item) => (
-                      <SelectItem key={item} id={item}>
-                        {item}
-                      </SelectItem>
-                    ))}
-                  </Select>
-                </div>
-                <div className="rounded-md bg-background-secondary-default p-3 text-sm">
-                  Seçilen öğrenci: <strong>{filteredStudents.length}</strong>
-                </div>
-              </CardContent>
-            </Card>
           </div>
 
           {/* CENTER: Önizleme */}
