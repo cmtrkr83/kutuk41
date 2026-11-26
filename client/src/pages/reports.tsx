@@ -238,7 +238,7 @@ export default function Reports() {
 
       <div className="grid md:grid-cols-2 gap-8">
         <Card className="flex h-full flex-col overflow-hidden rounded-2xl border-separator-border/70 shadow-sm">
-          <CardHeader className="border-b border-separator-border/60 bg-background-secondary-default/20 pb-5">
+          <CardHeader className="border-b border-separator-border/60 pb-5">
              <div className="flex items-start gap-3">
                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-status-blue-background text-status-blue-text">
                   <FileSignature className="w-5 h-5" />
@@ -269,7 +269,7 @@ export default function Reports() {
         </Card>
 
         <Card className="flex h-full flex-col overflow-hidden rounded-2xl border-separator-border/70 shadow-sm">
-          <CardHeader className="border-b border-separator-border/60 bg-background-secondary-default/20 pb-5">
+          <CardHeader className="border-b border-separator-border/60 pb-5">
              <div className="flex items-start gap-3">
                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-status-purple-background text-status-purple-text">
                     <FileCheck className="w-5 h-5" />

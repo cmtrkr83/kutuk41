@@ -383,7 +383,7 @@ export default function Labels() {
 
 			<div className="grid lg:grid-cols-3 gap-8">
 				<Card className="lg:col-span-1 h-fit overflow-hidden rounded-2xl border-separator-border/70 shadow-sm">
-					<CardHeader className="border-b border-separator-border/60 bg-background-secondary-default/20 pb-5">
+					<CardHeader className="border-b border-separator-border/60 pb-5">
 						<div className="flex items-start gap-3">
 							<div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-600/10 text-accent-600"><Tags className="h-5 w-5" /></div>
 							<div><CardTitle className="text-base">Etiket Ayarları</CardTitle>

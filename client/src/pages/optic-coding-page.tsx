@@ -674,7 +674,7 @@ export default function OpticCoding() {
           <div className="space-y-4">
             {selectedDesign && (
               <Card className="overflow-hidden rounded-2xl border-separator-border/70 shadow-sm">
-                <CardHeader className="gap-2 border-b border-separator-border/60 bg-background-secondary-default/10 p-4">
+                <CardHeader className="gap-2 border-b border-separator-border/60 p-4">
                   <CardTitle className="text-base">Excel Sütunları</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-1 p-4" style={{ maxHeight: 360, overflowY: "auto" }}>
@@ -729,7 +729,7 @@ export default function OpticCoding() {
             {/* QR Oluşturma Kartı */}
             {selectedDesign && availableColumns.length > 0 && (
               <Card className="overflow-hidden rounded-2xl border-separator-border/70 shadow-sm">
-                <CardHeader className="gap-2 border-b border-separator-border/60 bg-background-secondary-default/10 p-4">
+                <CardHeader className="gap-2 border-b border-separator-border/60 p-4">
                   <CardTitle className="text-base">QR Oluşturma</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3 p-4">
@@ -791,7 +791,7 @@ export default function OpticCoding() {
 
           {/* CENTER: Önizleme */}
           <Card className="min-w-0 overflow-hidden rounded-2xl border-separator-border/70 shadow-sm">
-            <CardHeader className="gap-2 border-b border-separator-border/60 bg-background-secondary-default/10 p-4">
+            <CardHeader className="gap-2 border-b border-separator-border/60 p-4">
               <CardTitle className="text-base">Önizleme</CardTitle>
             </CardHeader>
             <CardContent className="p-4">
@@ -879,7 +879,7 @@ export default function OpticCoding() {
 
           {/* RIGHT: Yerleştirilenler */}
           <Card className="overflow-hidden rounded-2xl border-separator-border/70 shadow-sm">
-            <CardHeader className="gap-2 border-b border-separator-border/60 bg-background-secondary-default/10 p-4">
+            <CardHeader className="gap-2 border-b border-separator-border/60 p-4">
               <CardTitle className="text-base">Yerleştirilenler</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 p-4">

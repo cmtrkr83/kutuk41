@@ -362,7 +362,7 @@ export default function RegistrySplit() {
       </div>
 
       <Card className="overflow-hidden rounded-2xl border-separator-border/70 shadow-sm">
-        <CardHeader className="border-b border-separator-border/60 bg-background-secondary-default/10 pb-5">
+        <CardHeader className="border-b border-separator-border/60 pb-5">
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="text-base">İlçe Listesi</CardTitle>
