@@ -69,3 +69,12 @@ Web System Core — sınav kütük yönetimi, optik kodlama/okuma, etiket/tutana
 - Kod tarzını mevcut dosyalardaki patternlere uydur (önce ilgili dosyayı oku).
 - Gerekmedikçe yorum satırı ekleme.
 - Test/lint komutu: `npm run check` (tsc).
+
+## Token ekonomisi
+
+- Cevaplar kısa: yapılan iş madde madde, kod/diff tekrarı yok, özet ve öneri gereksizse yazma.
+- Dosyayı baştan okuma; `grep`/`rg` ile satır bul, `read`'i `offset`+`limit` ile kullan.
+- Bağımsız komutları tek çağrıda paralel çalıştır; aynı bilgiyi ikinci kez isteme.
+- Büyük çıktı üreten komutlarda `| head` / `| tail` kullan.
+- Doğrulama için `npm run check` yeterli; ekstra build/test çalıştırma.
+- Gereksiz refactor, yorum, dokümantasyon ve biçimlendirme değişikliği yapma; sadece istenen işi yap.

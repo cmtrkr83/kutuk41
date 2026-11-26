@@ -558,14 +558,42 @@ export default function OpticCoding() {
           <h1 className="text-title-1-semibold tracking-tight text-text-primary">Optik Kodlama</h1>
           <p className="mt-1 text-body-regular text-text-secondary">Excel sütunlarını seçip optik form üzerine yerleştirin.</p>
         </div>
-        <Button
-          onClick={saveCodingProfile}
-          disabled={!selectedDesign || !selectedExamId || savingProfile || !!exporting}
-          variant="ghost"
-          leadingIcon={Save}
-        >
-          {savingProfile ? "Kaydediliyor..." : "Yerleşimi Kaydet"}
-        </Button>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="flex w-full flex-col gap-1 sm:w-40">
+            <Label htmlFor="export-batch-size">Dilim başına öğrenci</Label>
+            <Input
+              id="export-batch-size"
+              type="number"
+              min={50}
+              max={500}
+              step={50}
+              value={batchSizeInput}
+              onChange={(event) => setBatchSizeInput(event.target.value)}
+              onBlur={() => setBatchSizeInput(String(batchSize))}
+              disabled={!!exporting}
+            />
+          </div>
+          <Button
+            onClick={printAll}
+            disabled={!selectedDesign || filteredStudents.length === 0 || !!exporting}
+            variant="ghost"
+            leadingIcon={Printer}
+          >
+            {exporting
+              ? `Yazdırma ${exporting.done}/${exporting.total}`
+              : filteredStudents.length
+                ? `Yazdır ${printStart + 1}–${printEnd}/${filteredStudents.length}`
+                : "Yazdır"}
+          </Button>
+          <Button
+            onClick={saveCodingProfile}
+            disabled={!selectedDesign || !selectedExamId || savingProfile || !!exporting}
+            variant="ghost"
+            leadingIcon={Save}
+          >
+            {savingProfile ? "Kaydediliyor..." : "Yerleşimi Kaydet"}
+          </Button>
+        </div>
       </div>
 
       <Card className="min-w-0 overflow-hidden">
@@ -628,34 +656,6 @@ export default function OpticCoding() {
                 <SelectItem key={item} id={item}>{item}</SelectItem>
               ))}
             </Select>
-          </div>
-          <div className="flex flex-col gap-3 border-t border-separator-border/60 pt-4 sm:flex-row sm:items-end sm:justify-between">
-            <div className="flex w-full flex-col gap-1 sm:max-w-44">
-              <Label htmlFor="export-batch-size">Dilim başına öğrenci</Label>
-              <Input
-                id="export-batch-size"
-                type="number"
-                min={50}
-                max={500}
-                step={50}
-                value={batchSizeInput}
-                onChange={(event) => setBatchSizeInput(event.target.value)}
-                onBlur={() => setBatchSizeInput(String(batchSize))}
-                disabled={!!exporting}
-              />
-            </div>
-            <Button
-              onClick={printAll}
-              disabled={!selectedDesign || filteredStudents.length === 0 || !!exporting}
-              variant="ghost"
-              leadingIcon={Printer}
-            >
-              {exporting
-                ? `Yazdırma ${exporting.done}/${exporting.total}`
-                : filteredStudents.length
-                  ? `Yazdır ${printStart + 1}–${printEnd}/${filteredStudents.length}`
-                  : "Yazdır"}
-            </Button>
           </div>
         </CardContent>
       </Card>
